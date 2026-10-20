@@ -1,0 +1,159 @@
+openapi: 3.0.3
+info:
+  title: Changa Quest API
+  version: 1.0.0
+  description: Contrato canónico para registro, verificación y acceso de la demo local.
+servers:
+  - url: /
+paths:
+  /api/v1/accounts/register:
+    post:
+      operationId: registerAdultAccount
+      summary: Crea una cuenta pendiente de verificación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterAccountRequest"
+      responses:
+        "202":
+          description: Cuenta creada; no inicia sesión. En Development, el enlace se registra en la consola local.
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+  /api/v1/accounts/confirm-email:
+    get:
+      operationId: confirmAccountEmail
+      summary: Verifica el correo con un token de un solo uso
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Correo verificado; la persona puede iniciar sesión.
+        "400":
+          $ref: "#/components/responses/Problem"
+  /api/v1/accounts/login:
+    post:
+      operationId: signInAccount
+      summary: Inicia sesión solo con cuenta adulta y correo verificado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInRequest"
+      responses:
+        "200":
+          description: Sesión autenticada mediante cookie HttpOnly de mismo origen.
+          headers:
+            Set-Cookie:
+              description: Cookie de sesión HttpOnly; nunca se devuelve un token para almacenamiento JavaScript.
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+  /api/v1/accounts/logout:
+    post:
+      operationId: signOutAccount
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: Sesión cerrada.
+        "401":
+          $ref: "#/components/responses/Problem"
+  /api/v1/accounts/me:
+    get:
+      operationId: getCurrentAccount
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Perfil de la cuenta autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentAccount"
+        "401":
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: ChangaQuest.Auth
+  schemas:
+    RegisterAccountRequest:
+      type: object
+      required: [email, password, declaredAdult]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          description: Sin requisitos de composición.
+        declaredAdult:
+          type: boolean
+          description: Declaración afirmativa de tener 18 años o más; no se almacena fecha ni documento.
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    CurrentAccount:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    Problem:
+      type: object
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string }
+    ValidationProblem:
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          properties:
+            errors:
+              type: object
+              additionalProperties:
+                type: array
+                items: { type: string }
+  responses:
+    Problem:
+      description: Error conforme a Problem Details.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ValidationProblem:
+      description: Error de validación conforme a Problem Details.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ValidationProblem"

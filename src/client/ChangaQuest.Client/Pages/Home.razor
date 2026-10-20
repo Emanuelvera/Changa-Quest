@@ -1,0 +1,313 @@
+@page "/"
+@inject HttpClient Http
+
+<PageTitle>Changa Quest · Cuenta</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">CHANGA QUEST · DEMO LOCAL</p>
+        <h1>Un espacio para organizar changas del barrio</h1>
+        <p class="intro">Creá una cuenta para publicar o realizar changas. Esta demostración usa datos ficticios y no habilita trabajos ni pagos reales.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando tu cuenta…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(SignedInEmail))
+    {
+        <section class="account-card" aria-labelledby="welcome-heading">
+            <p class="eyebrow">CUENTA VERIFICADA</p>
+            <h2 id="welcome-heading">Hola, @SignedInEmail</h2>
+            <p>Tu cuenta puede actuar como solicitante o realizadora.</p>
+            <nav class="primary-nav" aria-label="Navegación principal">
+                <a href="/">Ver tareas</a>
+                <a href="/">Publicar changa</a>
+                <a href="/">Mis changas</a>
+                <a href="/">Perfil</a>
+            </nav>
+            <p class="status">Las funciones de changas se incorporan en las próximas historias.</p>
+            <button class="button secondary" type="button" @onclick="SignOutAsync">Cerrar sesión</button>
+        </section>
+    }
+    else
+    {
+        <section class="account-card" aria-labelledby="account-heading">
+            <div class="tabs" role="group" aria-label="Acceso a la cuenta">
+                <button class="@TabClass(showRegistration: false)" type="button" @onclick="() => ShowRegistration = false">Iniciar sesión</button>
+                <button class="@TabClass(showRegistration: true)" type="button" @onclick="() => ShowRegistration = true">Crear cuenta</button>
+            </div>
+
+            @if (!ShowRegistration)
+            {
+                <h2 id="account-heading">Iniciar sesión</h2>
+                <p class="form-intro">Usá el correo que verificaste para ingresar.</p>
+                <EditForm Model="@Login" OnValidSubmit="SignInAsync">
+                    <DataAnnotationsValidator />
+                    <div class="field">
+                        <label for="login-email">Correo electrónico</label>
+                        <InputText id="login-email" type="email" autocomplete="email"
+                                   aria-describedby="login-email-validation" @bind-Value="Login.Email" />
+                        <ValidationMessage id="login-email-validation" For="@(() => Login.Email)" />
+                    </div>
+                    <div class="field">
+                        <label for="login-password">Contraseña</label>
+                        <InputText id="login-password" type="password" autocomplete="current-password"
+                                   aria-describedby="login-password-validation" @bind-Value="Login.Password" />
+                        <ValidationMessage id="login-password-validation" For="@(() => Login.Password)" />
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(LoginError))
+                    {
+                        <p class="field-error" role="alert">@LoginError</p>
+                    }
+                    <button class="button" type="submit" disabled="@Busy">@(Busy ? "Ingresando…" : "Iniciar sesión")</button>
+                </EditForm>
+                <p class="switch-copy">¿Todavía no tenés cuenta? <button class="text-button" type="button" @onclick="() => ShowRegistration = true">Crear una cuenta</button></p>
+            }
+            else
+            {
+                <h2 id="account-heading">Crear cuenta adulta</h2>
+                <p class="form-intro">Verificá tu correo para habilitar el acceso.</p>
+                <EditForm Model="@Registration" OnValidSubmit="RegisterAsync">
+                    <DataAnnotationsValidator />
+                    <div class="field">
+                        <label for="register-email">Correo electrónico</label>
+                        <InputText id="register-email" type="email" autocomplete="email"
+                                   aria-describedby="@ErrorDescription("email")" aria-invalid="@HasError("email")"
+                                   @bind-Value="Registration.Email" />
+                        <ValidationMessage id="register-email-validation" For="@(() => Registration.Email)" />
+                        @FieldError("email")
+                    </div>
+                    <div class="field">
+                        <label for="register-password">Contraseña</label>
+                        <InputText id="register-password" type="password" autocomplete="new-password"
+                                   aria-describedby="@ErrorDescription("password")" aria-invalid="@HasError("password")"
+                                   @bind-Value="Registration.Password" />
+                        <p id="register-password-hint" class="hint">Al menos 12 caracteres. No hace falta combinar tipos de caracteres.</p>
+                        <ValidationMessage id="register-password-validation" For="@(() => Registration.Password)" />
+                        @FieldError("password")
+                    </div>
+                    <div class="field checkbox-field">
+                        <InputCheckbox id="declared-adult" @bind-Value="Registration.DeclaredAdult"
+                                       aria-describedby="@ErrorDescription("declaredAdult")"
+                                       aria-invalid="@HasError("declaredAdult")" />
+                        <label for="declared-adult">Declaro que tengo 18 años o más.</label>
+                        @FieldError("declaredAdult")
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(RegistrationError))
+                    {
+                        <p class="field-error" role="alert">@RegistrationError</p>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(RegistrationSuccess))
+                    {
+                        <p class="success-message" role="status">@RegistrationSuccess</p>
+                    }
+                    <button class="button" type="submit" disabled="@Busy">@(Busy ? "Creando cuenta…" : "Crear cuenta")</button>
+                </EditForm>
+                <p class="switch-copy">¿Ya tenés cuenta? <button class="text-button" type="button" @onclick="() => ShowRegistration = false">Iniciar sesión</button></p>
+            }
+        </section>
+    }
+    <footer>
+        <p>Demo académica local · No envía correos externos ni habilita trabajos reales.</p>
+    </footer>
+</main>
+
+@code {
+    private readonly LoginForm Login = new();
+    private readonly RegistrationForm Registration = new();
+    private readonly Dictionary<string, string> RegistrationErrors = new(StringComparer.Ordinal);
+    private bool Loading = true;
+    private bool Busy;
+    private bool ShowRegistration;
+    private string? SignedInEmail;
+    private string? LoginError;
+    private string? RegistrationError;
+    private string? RegistrationSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var account = await Http.GetFromJsonAsync<CurrentAccount>("/api/v1/accounts/me");
+            SignedInEmail = account?.Email;
+        }
+        catch (HttpRequestException)
+        {
+            SignedInEmail = null;
+        }
+        catch (JsonException)
+        {
+            SignedInEmail = null;
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private async Task RegisterAsync()
+    {
+        Busy = true;
+        RegistrationError = null;
+        RegistrationSuccess = null;
+        RegistrationErrors.Clear();
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                "/api/v1/accounts/register",
+                new RegisterRequest(Registration.Email, Registration.Password, Registration.DeclaredAdult));
+            if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
+            {
+                RegistrationSuccess = "Cuenta creada. El enlace de verificación está disponible en la consola local del backend.";
+                return;
+            }
+
+            await ReadRegistrationErrorsAsync(response);
+            if (RegistrationErrors.Count == 0)
+            {
+                RegistrationError = "No se pudo crear la cuenta. Revisá los datos e intentá de nuevo.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            RegistrationError = "No se pudo confirmar el resultado del registro. Intentá iniciar sesión o volvé a probar.";
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task SignInAsync()
+    {
+        Busy = true;
+        LoginError = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                "/api/v1/accounts/login",
+                new LoginRequest(Login.Email, Login.Password));
+            if (response.IsSuccessStatusCode)
+            {
+                var account = await Http.GetFromJsonAsync<CurrentAccount>("/api/v1/accounts/me");
+                SignedInEmail = account?.Email;
+                return;
+            }
+
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            LoginError = body.RootElement.TryGetProperty("detail", out var detail)
+                ? detail.GetString()
+                : "No se pudo iniciar sesión. Revisá los datos e intentá de nuevo.";
+        }
+        catch (HttpRequestException)
+        {
+            LoginError = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            LoginError = "No se pudo iniciar sesión. Intentá de nuevo.";
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task SignOutAsync()
+    {
+        using var response = await Http.PostAsync("/api/v1/accounts/logout", content: null);
+        if (response.IsSuccessStatusCode)
+        {
+            SignedInEmail = null;
+            Login.Password = string.Empty;
+        }
+    }
+
+    private async Task ReadRegistrationErrorsAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("errors", out var errors))
+            {
+                foreach (var field in errors.EnumerateObject())
+                {
+                    var message = field.Value.EnumerateArray().FirstOrDefault().GetString();
+                    if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        RegistrationErrors[field.Name] = message;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            RegistrationError = "No se pudo crear la cuenta. Intentá de nuevo.";
+        }
+    }
+
+    private bool HasError(string field) => RegistrationErrors.ContainsKey(field);
+    private string ErrorDescription(string field)
+    {
+        var descriptions = new List<string>();
+        if (field != "declaredAdult")
+        {
+            descriptions.Add($"register-{field}-validation");
+        }
+
+        if (field == "password")
+        {
+            descriptions.Add("register-password-hint");
+        }
+
+        if (HasError(field))
+        {
+            descriptions.Add($"register-{field}-error");
+        }
+
+        return string.Join(' ', descriptions);
+    }
+
+    private RenderFragment FieldError(string field) => builder =>
+    {
+        if (RegistrationErrors.TryGetValue(field, out var message))
+        {
+            builder.OpenElement(0, "p");
+            builder.AddAttribute(1, "id", $"register-{field}-error");
+            builder.AddAttribute(2, "class", "field-error");
+            builder.AddContent(3, message);
+            builder.CloseElement();
+        }
+    };
+
+    private string TabClass(bool showRegistration) =>
+        ShowRegistration == showRegistration ? "tab selected" : "tab";
+
+    private sealed class LoginForm
+    {
+        [Required(ErrorMessage = "Ingresá tu correo electrónico.")]
+        [EmailAddress(ErrorMessage = "Ingresá un correo electrónico válido.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Ingresá tu contraseña.")]
+        public string Password { get; set; } = string.Empty;
+    }
+
+    private sealed class RegistrationForm
+    {
+        [Required(ErrorMessage = "Ingresá tu correo electrónico.")]
+        [EmailAddress(ErrorMessage = "Ingresá un correo electrónico válido.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Ingresá una contraseña.")]
+        [MinLength(12, ErrorMessage = "La contraseña debe tener al menos 12 caracteres.")]
+        public string Password { get; set; } = string.Empty;
+
+        public bool DeclaredAdult { get; set; }
+    }
+
+    private sealed record RegisterRequest(string Email, string Password, bool DeclaredAdult);
+    private sealed record LoginRequest(string Email, string Password);
+    private sealed record CurrentAccount(string Email);
+}

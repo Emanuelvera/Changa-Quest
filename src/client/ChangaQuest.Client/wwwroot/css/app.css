@@ -1,0 +1,246 @@
+:root {
+    color-scheme: light;
+    font-family: Inter, "Segoe UI", sans-serif;
+    color: #25312d;
+    background: #f4f3ee;
+    font-synthesis: none;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background: radial-gradient(circle at 85% 10%, #e3e8dc 0, transparent 28rem), #f4f3ee;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+.page {
+    width: min(100% - 2rem, 42rem);
+    margin: 0 auto;
+    padding: 3.5rem 0 2rem;
+}
+
+.brand {
+    margin: 0 0 1.75rem;
+}
+
+.eyebrow {
+    color: #526d5f;
+    font-size: .75rem;
+    font-weight: 800;
+    letter-spacing: .12em;
+}
+
+h1,
+h2 {
+    color: #20372c;
+    line-height: 1.2;
+}
+
+h1 {
+    max-width: 36rem;
+    margin: .6rem 0;
+    font-size: clamp(2rem, 6vw, 3rem);
+}
+
+h2 {
+    margin: 1.5rem 0 .4rem;
+}
+
+.intro,
+.form-intro,
+.hint,
+.switch-copy,
+footer {
+    color: #56625c;
+    line-height: 1.55;
+}
+
+.account-card {
+    padding: clamp(1.25rem, 4vw, 2rem);
+    border: 1px solid #d6d9cf;
+    border-radius: 1rem;
+    background: #fffefa;
+    box-shadow: 0 1rem 3rem #24352d12;
+}
+
+.tabs {
+    display: flex;
+    gap: .4rem;
+    border-bottom: 1px solid #d6d9cf;
+}
+
+.tab,
+.text-button {
+    border: 0;
+    background: transparent;
+    color: #2f5642;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.tab {
+    padding: .75rem .8rem;
+    border-bottom: 3px solid transparent;
+}
+
+.tab.selected {
+    border-color: #2f694a;
+    color: #20372c;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+    margin: 1.1rem 0;
+}
+
+.field label {
+    font-weight: 700;
+}
+
+.field input:not([type="checkbox"]) {
+    width: 100%;
+    min-height: 2.9rem;
+    padding: .7rem .8rem;
+    border: 1px solid #89968c;
+    border-radius: .45rem;
+    background: white;
+    color: #1e2822;
+}
+
+.checkbox-field {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    align-items: start;
+    gap: .65rem;
+}
+
+.checkbox-field input {
+    width: 1.2rem;
+    height: 1.2rem;
+    margin-top: .15rem;
+}
+
+.checkbox-field .field-error {
+    grid-column: 2;
+}
+
+.field-error {
+    margin: .15rem 0;
+    color: #8c2d27;
+    font-size: .92rem;
+    font-weight: 600;
+}
+
+.success-message,
+.status {
+    padding: .75rem 1rem;
+    border-left: 4px solid #3e704e;
+    background: #edf3ec;
+    line-height: 1.5;
+}
+
+.button {
+    min-height: 2.9rem;
+    padding: .7rem 1.15rem;
+    border: 2px solid #285d3f;
+    border-radius: .45rem;
+    background: #285d3f;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 750;
+}
+
+.button:disabled {
+    cursor: wait;
+    opacity: .7;
+}
+
+.button.secondary {
+    background: transparent;
+    color: #285d3f;
+}
+
+.text-button {
+    padding: .2rem;
+    text-decoration: underline;
+    text-underline-offset: .2em;
+}
+
+.primary-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .7rem;
+    margin: 1.5rem 0;
+}
+
+.primary-nav a {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    padding: .6rem .8rem;
+    border: 1px solid #b9c7bb;
+    border-radius: .45rem;
+    color: #254c36;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+    outline: 3px solid #b05b19;
+    outline-offset: 3px;
+}
+
+footer {
+    margin-top: 1.5rem;
+    font-size: .88rem;
+}
+
+@media (max-width: 40rem) {
+    .page {
+        padding: 2rem 0 6rem;
+    }
+
+    .primary-nav {
+        position: fixed;
+        z-index: 2;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        justify-content: space-around;
+        gap: .2rem;
+        margin: 0;
+        padding: .55rem .25rem max(.55rem, env(safe-area-inset-bottom));
+        border-top: 1px solid #cbd2c8;
+        background: #fffefa;
+    }
+
+    .primary-nav a {
+        min-height: 2.75rem;
+        padding: .4rem .5rem;
+        font-size: .77rem;
+        text-align: center;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+    }
+}
