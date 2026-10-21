@@ -1,0 +1,11 @@
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\bin\Debug\net10.0\ChangaQuest.Entities.deps.json
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\bin\Debug\net10.0\ChangaQuest.Entities.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\bin\Debug\net10.0\ChangaQuest.Entities.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\ChangaQuest.Entities.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\ChangaQuest.Entities.AssemblyInfoInputs.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\ChangaQuest.Entities.AssemblyInfo.cs
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\ChangaQuest.Entities.csproj.CoreCompileInputs.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\ChangaQuest.Entities.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\refint\ChangaQuest.Entities.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\ChangaQuest.Entities.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.Entities\obj\Debug\net10.0\ref\ChangaQuest.Entities.dll

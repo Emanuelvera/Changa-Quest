@@ -20,13 +20,11 @@
             <p class="eyebrow">CUENTA VERIFICADA</p>
             <h2 id="welcome-heading">Hola, @SignedInEmail</h2>
             <p>Tu cuenta puede actuar como solicitante o realizadora.</p>
-            <nav class="primary-nav" aria-label="Navegación principal">
-                <a href="/">Ver tareas</a>
-                <a href="/">Publicar changa</a>
-                <a href="/">Mis changas</a>
-                <a href="/">Perfil</a>
-            </nav>
             <p class="status">Las funciones de changas se incorporan en las próximas historias.</p>
+            @if (!string.IsNullOrWhiteSpace(AccountError))
+            {
+                <p class="field-error" role="alert">@AccountError</p>
+            }
             <button class="button secondary" type="button" @onclick="SignOutAsync">Cerrar sesión</button>
         </section>
     }
@@ -37,6 +35,10 @@
                 <button class="@TabClass(showRegistration: false)" type="button" @onclick="() => ShowRegistration = false">Iniciar sesión</button>
                 <button class="@TabClass(showRegistration: true)" type="button" @onclick="() => ShowRegistration = true">Crear cuenta</button>
             </div>
+            @if (!string.IsNullOrWhiteSpace(AccountLoadError))
+            {
+                <p class="field-error" role="alert">@AccountLoadError</p>
+            }
 
             @if (!ShowRegistration)
             {
@@ -124,6 +126,8 @@
     private string? LoginError;
     private string? RegistrationError;
     private string? RegistrationSuccess;
+    private string? AccountLoadError;
+    private string? AccountError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -139,6 +143,11 @@
         catch (JsonException)
         {
             SignedInEmail = null;
+        }
+        catch (OperationCanceledException)
+        {
+            SignedInEmail = null;
+            AccountLoadError = "No se pudo consultar tu sesión. Intentá de nuevo.";
         }
         finally
         {
@@ -172,6 +181,10 @@
         catch (HttpRequestException)
         {
             RegistrationError = "No se pudo confirmar el resultado del registro. Intentá iniciar sesión o volvé a probar.";
+        }
+        catch (OperationCanceledException)
+        {
+            RegistrationError = "El registro tardó demasiado. Intentá de nuevo.";
         }
         finally
         {
@@ -208,6 +221,10 @@
         {
             LoginError = "No se pudo iniciar sesión. Intentá de nuevo.";
         }
+        catch (OperationCanceledException)
+        {
+            LoginError = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
         finally
         {
             Busy = false;
@@ -216,11 +233,26 @@
 
     private async Task SignOutAsync()
     {
-        using var response = await Http.PostAsync("/api/v1/accounts/logout", content: null);
-        if (response.IsSuccessStatusCode)
+        AccountError = null;
+        try
         {
-            SignedInEmail = null;
-            Login.Password = string.Empty;
+            using var response = await Http.PostAsync("/api/v1/accounts/logout", content: null);
+            if (response.IsSuccessStatusCode)
+            {
+                SignedInEmail = null;
+                Login.Password = string.Empty;
+                return;
+            }
+
+            AccountError = "No se pudo cerrar la sesión. Intentá de nuevo.";
+        }
+        catch (HttpRequestException)
+        {
+            AccountError = "No se pudo conectar con el servidor para cerrar la sesión.";
+        }
+        catch (OperationCanceledException)
+        {
+            AccountError = "El cierre de sesión tardó demasiado. Intentá de nuevo.";
         }
     }
 

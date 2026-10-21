@@ -10,12 +10,25 @@ public sealed class AccountApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"ChangaQuestAcceptance_{Guid.NewGuid():N}";
     private readonly CapturingLoggerProvider _loggerProvider = new();
+    private readonly string _environmentName;
 
     public IReadOnlyCollection<string> LogEntries => _loggerProvider.Entries;
 
+    public AccountApiFactory() : this("Development")
+    {
+    }
+
+    private AccountApiFactory(string environmentName)
+    {
+        _environmentName = environmentName;
+    }
+
+    public static AccountApiFactory ForEnvironment(string environmentName) =>
+        new(environmentName);
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
+        builder.UseEnvironment(_environmentName);
         builder.UseSetting(
             "ConnectionStrings:ChangaQuest",
             $"Server=(localdb)\\MSSQLLocalDB;Database={_databaseName};Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True");

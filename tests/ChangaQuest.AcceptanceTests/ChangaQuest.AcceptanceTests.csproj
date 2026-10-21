@@ -13,10 +13,12 @@
     <PackageReference Include="xunit.v3" Version="4.0.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
+    <PackageReference Include="bunit" Version="2.12.5" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\backend\ChangaQuest.Api\ChangaQuest.Api.csproj" />
+    <ProjectReference Include="..\..\src\client\ChangaQuest.Client\ChangaQuest.Client.csproj" />
     <None Include="..\..\specs\api\openapi-v1.yaml" Link="Contracts\openapi-v1.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

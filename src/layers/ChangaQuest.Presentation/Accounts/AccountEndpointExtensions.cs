@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using System.ComponentModel.DataAnnotations;
 using ChangaQuest.BusinessLogic.Accounts;
+using ChangaQuest.Entities.Accounts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -109,17 +111,28 @@ public static class AccountEndpointExtensions
         SignInRequest request,
         AccountManager manager)
     {
-        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrEmpty(request.Password))
+        var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var email = request.Email?.Trim();
+        if (string.IsNullOrWhiteSpace(email) ||
+            email.Length > AccountPolicy.MaximumEmailLength ||
+            !new EmailAddressAttribute().IsValid(email))
+        {
+            errors["email"] = ["Ingresá un correo electrónico válido."];
+        }
+
+        if (string.IsNullOrEmpty(request.Password))
+        {
+            errors["password"] = ["Ingresá tu contraseña."];
+        }
+
+        if (errors.Count > 0)
         {
             return Results.ValidationProblem(
-                new Dictionary<string, string[]>
-                {
-                    ["email"] = ["Ingresá el correo electrónico y la contraseña."]
-                },
+                errors,
                 title: "No se pudo iniciar sesión.");
         }
 
-        var status = await manager.SignInAsync(request.Email, request.Password);
+        var status = await manager.SignInAsync(email!, request.Password!);
         return status switch
         {
             AccountLoginStatus.Succeeded => Results.Ok(new { message = "Sesión iniciada." }),

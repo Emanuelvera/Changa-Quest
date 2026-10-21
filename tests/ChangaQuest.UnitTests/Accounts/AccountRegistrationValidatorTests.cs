@@ -54,4 +54,18 @@ public class AccountRegistrationValidatorTests
 
         Assert.True(result.IsValid);
     }
+
+    [Fact]
+    public void Validate_rejects_email_longer_than_the_identity_column()
+    {
+        var email = $"{new string('a', 245)}@example.test";
+
+        var result = AccountRegistrationValidator.Validate(
+            email,
+            "abcdefghijkl",
+            declaredAdult: true);
+
+        Assert.False(result.IsValid);
+        Assert.Contains("email", result.Errors.Keys);
+    }
 }

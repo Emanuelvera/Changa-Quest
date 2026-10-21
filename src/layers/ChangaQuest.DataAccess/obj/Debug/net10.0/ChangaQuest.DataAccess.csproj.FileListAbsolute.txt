@@ -1,0 +1,17 @@
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\bin\Debug\net10.0\ChangaQuest.DataAccess.deps.json
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\bin\Debug\net10.0\ChangaQuest.DataAccess.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\bin\Debug\net10.0\ChangaQuest.DataAccess.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\bin\Debug\net10.0\ChangaQuest.Entities.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\bin\Debug\net10.0\ChangaQuest.Entities.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.csproj.AssemblyReference.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.AssemblyInfoInputs.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.AssemblyInfo.cs
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.csproj.CoreCompileInputs.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQu.FB2FB205.Up2Date
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\refint\ChangaQuest.DataAccess.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ref\ChangaQuest.DataAccess.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\bin\Debug\net10.0\ChangaQuest.DataAccess.runtimeconfig.json
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.DataAccess\obj\Debug\net10.0\ChangaQuest.DataAccess.genruntimeconfig.cache

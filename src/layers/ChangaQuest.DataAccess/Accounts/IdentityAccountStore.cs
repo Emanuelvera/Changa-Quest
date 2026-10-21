@@ -33,16 +33,26 @@ public sealed class IdentityAccountStore(
         }
         if (!result.Succeeded)
         {
-            var errors = result.Errors
-                .GroupBy(error => error.Code.StartsWith("Duplicate", StringComparison.Ordinal)
-                    ? "email"
-                    : "password")
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.Key == "email"
-                        ? new[] { "Ese correo ya tiene una cuenta." }
-                        : new[] { "La contraseña no cumple los requisitos." },
-                    StringComparer.Ordinal);
+            var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (var error in result.Errors)
+            {
+                var field = error.Code switch
+                {
+                    "DuplicateEmail" or "DuplicateUserName" => "email",
+                    "InvalidEmail" or "InvalidUserName" or "UserNameTooLong" => "email",
+                    _ when error.Code.StartsWith("Password", StringComparison.Ordinal) => "password",
+                    _ => "account"
+                };
+                errors[field] = field switch
+                {
+                    "email" when error.Code.StartsWith("Duplicate", StringComparison.Ordinal) =>
+                        ["Ese correo ya tiene una cuenta."],
+                    "email" => ["Ingresá un correo electrónico válido."],
+                    "password" => ["La contraseña no cumple los requisitos."],
+                    _ => ["No se pudo crear la cuenta. Intentá de nuevo."]
+                };
+            }
+
             return new AccountCreationResult(false, Errors: errors);
         }
 

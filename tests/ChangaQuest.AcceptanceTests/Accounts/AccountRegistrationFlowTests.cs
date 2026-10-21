@@ -30,6 +30,57 @@ public class AccountRegistrationFlowTests(AccountApiFactory factory) : IClassFix
     }
 
     [Fact]
+    public async Task Registration_rejects_email_longer_than_the_identity_column()
+    {
+        using var client = factory.CreateClient();
+        var email = $"{new string('a', 245)}@example.test";
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/accounts/register",
+            new { email, password = "contraseña-larga", declaredAdult = true });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        Assert.Contains("email", body.RootElement.GetProperty("errors").EnumerateObject().Select(item => item.Name));
+    }
+
+    [Fact]
+    public async Task Production_registration_does_not_log_the_local_verification_link()
+    {
+        using var productionFactory = AccountApiFactory.ForEnvironment("Production");
+        using var client = productionFactory.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/accounts/register",
+            new
+            {
+                email = $"production-{Guid.NewGuid():N}@example.test",
+                password = "contraseña-larga",
+                declaredAdult = true
+            });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.DoesNotContain(
+            productionFactory.LogEntries,
+            entry => entry.Contains("Enlace local de verificación:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Login_rejects_malformed_email_as_a_validation_problem()
+    {
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/accounts/login",
+            new { email = "not-an-email", password = "contraseña-larga" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        Assert.Contains("email", body.RootElement.GetProperty("errors").EnumerateObject().Select(item => item.Name));
+    }
+
+    [Fact]
     public async Task Duplicate_registration_is_a_field_error_not_a_success()
     {
         using var client = factory.CreateClient();

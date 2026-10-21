@@ -1,0 +1,54 @@
+# Estos elementos describen capacidades del producto objetivo; para la demo académica, las exclusiones y límites de SPEC.md en "Academic Demo Scope" prevalecen sobre las capacidades más amplias.
+- id: "1"
+  title: Elegibilidad y publicación de changas
+  description: >-
+    Implementa CAP-1 de SPEC.md: permitir a personas adultas con correo verificado
+    publicar una changa segura con recompensa, ubicación, materiales y modalidad
+    de asignación.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Aplicar estrictamente SDD/TDD y referenciar CAP-1.
+- id: "2"
+  title: Búsqueda y privacidad de ubicación
+  description: >-
+    Implementa CAP-2 de SPEC.md: buscar changas por ubicación y radio, usando
+    ubicación manual o GPS opt-in y protegiendo la ubicación precisa.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Aplicar SDD/TDD y no fijar un radio sin resolver OQ-3.
+- id: "3"
+  title: Asignación y consentimiento de contacto
+  description: >-
+    Implementa CAP-3 de SPEC.md: asignar por orden de llegada o selección entre
+    postulaciones y compartir teléfonos solo con consentimiento mutuo.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Aplicar SDD/TDD y probar asignación concurrente y consentimiento telefónico
+    mutuo.
+- id: "4"
+  title: Ciclo de vida, cancelación y pagos declarados
+  description: >-
+    Implementa CAP-4 de SPEC.md: gestionar cancelación, confirmación de
+    realización y declaraciones separadas de pagos externos.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Aplicar SDD/TDD; no procesar ni verificar pagos; probar el plazo de 20
+    minutos y los estados pendientes.
+- id: "5"
+  title: Calificaciones mutuas
+  description: >-
+    Implementa CAP-5 de SPEC.md: habilitar calificaciones mutuas luego de un
+    cierre permitido y exponer el promedio y la cantidad en el perfil.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Aplicar SDD/TDD; una calificación por persona y changa, sin revelar la
+    identidad de quien calificó.
+- id: "6"
+  title: Reportes y revisión administrativa
+  description: >-
+    Implementa CAP-6 de SPEC.md para el producto real: reportar, bloquear y
+    revisar reportes o discrepancias con respuesta y apelación.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Aplicar SDD/TDD; no inventar políticas de revisión, plazos ni sanciones
+    aún abiertos en el PRD.

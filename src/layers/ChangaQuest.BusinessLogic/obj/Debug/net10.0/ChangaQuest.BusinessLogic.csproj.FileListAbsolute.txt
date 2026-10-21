@@ -1,0 +1,17 @@
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\bin\Debug\net10.0\ChangaQuest.BusinessLogic.deps.json
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\bin\Debug\net10.0\ChangaQuest.BusinessLogic.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\bin\Debug\net10.0\ChangaQuest.BusinessLogic.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQuest.BusinessLogic.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQuest.BusinessLogic.AssemblyInfoInputs.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQuest.BusinessLogic.AssemblyInfo.cs
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQuest.BusinessLogic.csproj.CoreCompileInputs.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQuest.BusinessLogic.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\refint\ChangaQuest.BusinessLogic.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQuest.BusinessLogic.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ref\ChangaQuest.BusinessLogic.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\bin\Debug\net10.0\ChangaQuest.DataAccess.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\bin\Debug\net10.0\ChangaQuest.Entities.dll
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\bin\Debug\net10.0\ChangaQuest.DataAccess.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\bin\Debug\net10.0\ChangaQuest.Entities.pdb
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQuest.BusinessLogic.csproj.AssemblyReference.cache
+C:\Users\emanu\OneDrive\Desktop\Changa-Quest\src\layers\ChangaQuest.BusinessLogic\obj\Debug\net10.0\ChangaQu.BCF609D6.Up2Date

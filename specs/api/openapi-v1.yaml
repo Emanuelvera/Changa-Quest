@@ -19,6 +19,10 @@ paths:
       responses:
         "202":
           description: Cuenta creada; no inicia sesión. En Development, el enlace se registra en la consola local.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountRegistrationAccepted"
         "400":
           $ref: "#/components/responses/ValidationProblem"
   /api/v1/accounts/confirm-email:
@@ -39,6 +43,10 @@ paths:
       responses:
         "200":
           description: Correo verificado; la persona puede iniciar sesión.
+          content:
+            text/html:
+              schema:
+                type: string
         "400":
           $ref: "#/components/responses/Problem"
   /api/v1/accounts/login:
@@ -54,6 +62,10 @@ paths:
       responses:
         "200":
           description: Sesión autenticada mediante cookie HttpOnly de mismo origen.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
           headers:
             Set-Cookie:
               description: Cookie de sesión HttpOnly; nunca se devuelve un token para almacenamiento JavaScript.
@@ -96,6 +108,18 @@ components:
       in: cookie
       name: ChangaQuest.Auth
   schemas:
+    AccountRegistrationAccepted:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    LoginResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
     RegisterAccountRequest:
       type: object
       required: [email, password, declaredAdult]

@@ -2,7 +2,7 @@
 title: "Story 1.1 — Crear y verificar una cuenta adulta"
 type: feature
 created: 2026-10-20
-status: done
+status: in-review
 route: dispatch
 review_loop_iteration: 0
 baseline_commit: UNBORN_HEAD
@@ -79,4 +79,5 @@ SDK instalado: 10.0.401; runtimes .NET/ASP.NET Core: 10.0.12. LocalDB `MSSQLLoca
 ## Verification
 
 **Commands:**
-- `dotnet test` — esperado: todas las pruebas unitarias, de integración y de aceptación pasan contra SQL Server LocalDB.
+- `dotnet build ChangaQuest.sln --nologo` — compila todos los proyectos de la solución.
+- `dotnet test --test-modules "tests\**\bin\Debug\net10.0\*Tests.dll"` — esperado: todas las pruebas unitarias, de integración y de aceptación pasan contra SQL Server LocalDB.

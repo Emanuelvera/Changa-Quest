@@ -13,11 +13,16 @@ public static class AccountRegistrationValidator
         bool declaredAdult)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var normalizedEmail = email?.Trim();
 
-        if (string.IsNullOrWhiteSpace(email) ||
-            !new EmailAddressAttribute().IsValid(email.Trim()))
+        if (string.IsNullOrWhiteSpace(normalizedEmail) ||
+            !new EmailAddressAttribute().IsValid(normalizedEmail))
         {
             errors["email"] = ["Ingresá un correo electrónico válido."];
+        }
+        else if (normalizedEmail.Length > AccountPolicy.MaximumEmailLength)
+        {
+            errors["email"] = [$"El correo electrónico no puede superar {AccountPolicy.MaximumEmailLength} caracteres."];
         }
 
         if (password is null || password.Length < MinimumPasswordLength)
