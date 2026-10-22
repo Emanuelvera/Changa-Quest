@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -13,6 +13,7 @@ public sealed class AccountApiFactory : WebApplicationFactory<Program>
     private readonly string _environmentName;
 
     public IReadOnlyCollection<string> LogEntries => _loggerProvider.Entries;
+    public string DatabaseName => _databaseName;
 
     public AccountApiFactory() : this("Development")
     {

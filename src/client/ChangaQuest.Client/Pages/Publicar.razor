@@ -1,0 +1,261 @@
+﻿@page "/publicar"
+@inject HttpClient Http
+
+<PageTitle>Publicar changa · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">PUBLICACIÓN LOCAL</p>
+        <h1>Publicar changa</h1>
+        <p class="intro">Contá qué necesitás, cuánto ofrecés y en qué zona. La dirección exacta se guarda de forma privada y no aparece en el tablón.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Verificando tu sesión…</p>
+    }
+    else if (!SignedIn)
+    {
+        <p class="status" role="status">Iniciá sesión con una cuenta adulta y correo verificado para publicar.</p>
+        <a class="button-link" href="/">Ir a iniciar sesión</a>
+    }
+    else
+    {
+        <section class="account-card" aria-labelledby="publish-heading">
+            <h2 id="publish-heading">Datos de la changa</h2>
+            <EditForm Model="Form" OnSubmit="PublishAsync">
+                <div class="field">
+                    <label for="description">Descripción</label>
+                    <InputTextArea id="description" @bind-Value="Form.Description"
+                                   aria-describedby="@ErrorDescription("description")" aria-invalid="@HasError("description")" />
+                    <p class="hint">Describí el trabajo en 10 a 1000 caracteres.</p>
+                    <ValidationMessage id="description-validation" For="@(() => Form.Description)" />
+                    @FieldError("description")
+                </div>
+                <div class="field">
+                    <label for="reward">Recompensa en pesos argentinos (ARS)</label>
+                    <InputNumber id="reward" @bind-Value="Form.Reward" min="1" max="10000000"
+                                 aria-describedby="@ErrorDescription("reward")" aria-invalid="@HasError("reward")" />
+                    <ValidationMessage id="reward-validation" For="@(() => Form.Reward)" />
+                    @FieldError("reward")
+                </div>
+                <div class="field">
+                    <label for="zone">Barrio o zona aproximada</label>
+                    <InputText id="zone" @bind-Value="Form.Zone" maxlength="80"
+                               aria-describedby="@ErrorDescription("zone")" aria-invalid="@HasError("zone")" />
+                    <ValidationMessage id="zone-validation" For="@(() => Form.Zone)" />
+                    @FieldError("zone")
+                </div>
+                <div class="field">
+                    <label for="exact-address">Dirección exacta (privada)</label>
+                    <InputText id="exact-address" @bind-Value="Form.ExactAddress" maxlength="200"
+                               aria-describedby="@ErrorDescription("exactAddress")" aria-invalid="@HasError("exactAddress")" />
+                    <p class="hint">No se mostrará en el tablón ni en el detalle público.</p>
+                    <ValidationMessage id="exact-address-validation" For="@(() => Form.ExactAddress)" />
+                    @FieldError("exactAddress")
+                </div>
+                <div class="field">
+                    <label for="materials-needed">¿Hacen falta herramientas o materiales?</label>
+                    <InputSelect id="materials-needed" @bind-Value="Form.MaterialsNeeded" @bind-Value:after="OnMaterialsAnswerChanged"
+                                 aria-describedby="@ErrorDescription("materialsNeeded")" aria-invalid="@HasError("materialsNeeded")">
+                        <option value="">Seleccioná una respuesta</option>
+                        <option value="true">Sí, hacen falta</option>
+                        <option value="false">No hacen falta materiales</option>
+                    </InputSelect>
+                    <ValidationMessage id="materials-needed-validation" For="@(() => Form.MaterialsNeeded)" />
+                    @FieldError("materialsNeeded")
+                </div>
+                @if (Form.MaterialsNeeded == true)
+                {
+                    <div class="field">
+                        <label for="materials-provider">¿Quién aporta los materiales?</label>
+                        <InputSelect id="materials-provider" @bind-Value="Form.MaterialsProvider"
+                                     aria-describedby="@ErrorDescription("materialsProvider")" aria-invalid="@HasError("materialsProvider")">
+                            <option value="">Seleccioná quién los aporta</option>
+                            <option value="requester">Quien publica</option>
+                            <option value="worker">Quien realiza</option>
+                        </InputSelect>
+                        <ValidationMessage id="materials-provider-validation" For="@(() => Form.MaterialsProvider)" />
+                        @FieldError("materialsProvider")
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <p class="field-error" role="alert">@Error</p>
+                }
+                @if (!string.IsNullOrWhiteSpace(Success))
+                {
+                    <p class="success-message" role="status">@Success</p>
+                    <a href="/tareas">Ver tareas</a>
+                }
+                <button class="button" type="submit" disabled="@Busy">@(Busy ? "Publicando…" : "Publicar changa")</button>
+            </EditForm>
+        </section>
+    }
+</main>
+
+@code {
+    private readonly PublicationForm Form = new();
+    private readonly Dictionary<string, string> ServerErrors = new(StringComparer.Ordinal);
+    private bool Loading = true;
+    private bool SignedIn;
+    private bool Busy;
+    private string? Error;
+    private string? Success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var response = await Http.GetAsync("/api/v1/accounts/me");
+            SignedIn = response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo consultar tu sesión. Intentá recargar la página.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La consulta de sesión tardó demasiado. Intentá de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private void OnMaterialsAnswerChanged()
+    {
+        if (Form.MaterialsNeeded == false)
+        {
+            Form.MaterialsProvider = null;
+        }
+    }
+
+    private async Task PublishAsync()
+    {
+        Busy = true;
+        Error = null;
+        Success = null;
+        ServerErrors.Clear();
+        try
+        {
+            var payload = new CreateChangaRequest(
+                Form.Description,
+                Form.Reward,
+                Form.Zone,
+                Form.ExactAddress,
+                Form.MaterialsNeeded,
+                Form.MaterialsNeeded == true ? Form.MaterialsProvider : null);
+            using var response = await Http.PostAsJsonAsync("/api/v1/changas", payload);
+            if (response.StatusCode == System.Net.HttpStatusCode.Created)
+            {
+                Success = "La changa quedó publicada y disponible en el tablón.";
+                return;
+            }
+
+            await ReadErrorsAsync(response);
+            if (ServerErrors.Count == 0)
+            {
+                Error = "No se pudo publicar la changa. Revisá los datos e intentá de nuevo.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Tus datos siguen en el formulario; intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo confirmar el resultado. Tus datos siguen en el formulario; revisá el tablón antes de volver a enviar.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La publicación tardó demasiado. Tus datos siguen en el formulario; intentá de nuevo.";
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task ReadErrorsAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("errors", out var errors))
+            {
+                foreach (var field in errors.EnumerateObject())
+                {
+                    var message = field.Value.EnumerateArray().FirstOrDefault().GetString();
+                    if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        ServerErrors[field.Name] = message;
+                    }
+                }
+            }
+
+            if (body.RootElement.TryGetProperty("detail", out var detail))
+            {
+                Error = detail.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo publicar la changa. Intentá de nuevo.";
+        }
+    }
+
+    private bool HasError(string field) => ServerErrors.ContainsKey(field);
+
+    private string ErrorDescription(string field)
+    {
+        var id = field switch
+        {
+            "exactAddress" => "exact-address",
+            "materialsNeeded" => "materials-needed",
+            "materialsProvider" => "materials-provider",
+            _ => field
+        };
+        return HasError(field) ? $"{id}-validation {id}-error" : $"{id}-validation";
+    }
+
+    private RenderFragment FieldError(string field) => builder =>
+    {
+        if (ServerErrors.TryGetValue(field, out var message))
+        {
+            var id = field switch
+            {
+                "exactAddress" => "exact-address",
+                "materialsNeeded" => "materials-needed",
+                "materialsProvider" => "materials-provider",
+                _ => field
+            };
+            builder.OpenElement(0, "p");
+            builder.AddAttribute(1, "id", $"{id}-error");
+            builder.AddAttribute(2, "class", "field-error");
+            builder.AddContent(3, message);
+            builder.CloseElement();
+        }
+    };
+
+    // Solo recoge datos: las reglas de validación viven en BusinessLogic y llegan como errores por campo.
+    private sealed class PublicationForm
+    {
+        public string Description { get; set; } = string.Empty;
+        public int? Reward { get; set; }
+        public string Zone { get; set; } = string.Empty;
+        public string ExactAddress { get; set; } = string.Empty;
+        public bool? MaterialsNeeded { get; set; }
+        public string? MaterialsProvider { get; set; }
+    }
+
+    private sealed record CreateChangaRequest(
+        string Description,
+        int? Reward,
+        string Zone,
+        string ExactAddress,
+        bool? MaterialsNeeded,
+        [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        string? MaterialsProvider);
+}

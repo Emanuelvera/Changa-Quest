@@ -1,0 +1,11 @@
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+.acceptance-output.txt
+
+# Configuración local de herramientas
+.engram/
+.roo/
+vscode/

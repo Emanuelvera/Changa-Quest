@@ -1,5 +1,12 @@
-@inherits LayoutComponentBase
+﻿@inherits LayoutComponentBase
 
 <div class="app-shell">
+    <header class="site-header">
+        <a class="site-brand" href="/" aria-label="Changa Quest, inicio">Changa Quest</a>
+        <nav class="primary-nav" aria-label="Navegación principal">
+            <NavLink href="/tareas" Match="NavLinkMatch.All">Ver tareas</NavLink>
+            <NavLink href="/publicar" Match="NavLinkMatch.All">Publicar changa</NavLink>
+        </nav>
+    </header>
     @Body
 </div>

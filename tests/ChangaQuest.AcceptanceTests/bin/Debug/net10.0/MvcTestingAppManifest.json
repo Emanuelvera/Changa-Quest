@@ -1,8 +1,0 @@
-{
-  "ChangaQuest.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "C:\\Users\\emanu\\OneDrive\\Desktop\\Changa-Quest\\src\\backend\\ChangaQuest.Api",
-  "ChangaQuest.BusinessLogic, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "C:\\Users\\emanu\\OneDrive\\Desktop\\Changa-Quest\\src\\layers\\ChangaQuest.BusinessLogic",
-  "ChangaQuest.Client, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "C:\\Users\\emanu\\OneDrive\\Desktop\\Changa-Quest\\src\\client\\ChangaQuest.Client",
-  "ChangaQuest.DataAccess, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "C:\\Users\\emanu\\OneDrive\\Desktop\\Changa-Quest\\src\\layers\\ChangaQuest.DataAccess",
-  "ChangaQuest.Entities, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "C:\\Users\\emanu\\OneDrive\\Desktop\\Changa-Quest\\src\\layers\\ChangaQuest.Entities",
-  "ChangaQuest.Presentation, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "C:\\Users\\emanu\\OneDrive\\Desktop\\Changa-Quest\\src\\layers\\ChangaQuest.Presentation"
-}

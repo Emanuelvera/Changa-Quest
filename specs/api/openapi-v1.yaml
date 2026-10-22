@@ -1,15 +1,15 @@
-openapi: 3.0.3
+﻿openapi: 3.0.3
 info:
   title: Changa Quest API
   version: 1.0.0
-  description: Contrato canónico para registro, verificación y acceso de la demo local.
+  description: Contrato canÃ³nico para registro, verificaciÃ³n y acceso de la demo local.
 servers:
   - url: /
 paths:
   /api/v1/accounts/register:
     post:
       operationId: registerAdultAccount
-      summary: Crea una cuenta pendiente de verificación
+      summary: Crea una cuenta pendiente de verificaciÃ³n
       requestBody:
         required: true
         content:
@@ -18,7 +18,7 @@ paths:
               $ref: "#/components/schemas/RegisterAccountRequest"
       responses:
         "202":
-          description: Cuenta creada; no inicia sesión. En Development, el enlace se registra en la consola local.
+          description: Cuenta creada; no inicia sesiÃ³n. En Development, el enlace se registra en la consola local.
           content:
             application/json:
               schema:
@@ -42,7 +42,7 @@ paths:
             type: string
       responses:
         "200":
-          description: Correo verificado; la persona puede iniciar sesión.
+          description: Correo verificado; la persona puede iniciar sesiÃ³n.
           content:
             text/html:
               schema:
@@ -52,7 +52,7 @@ paths:
   /api/v1/accounts/login:
     post:
       operationId: signInAccount
-      summary: Inicia sesión solo con cuenta adulta y correo verificado
+      summary: Inicia sesiÃ³n solo con cuenta adulta y correo verificado
       requestBody:
         required: true
         content:
@@ -61,14 +61,14 @@ paths:
               $ref: "#/components/schemas/SignInRequest"
       responses:
         "200":
-          description: Sesión autenticada mediante cookie HttpOnly de mismo origen.
+          description: SesiÃ³n autenticada mediante cookie HttpOnly de mismo origen.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
           headers:
             Set-Cookie:
-              description: Cookie de sesión HttpOnly; nunca se devuelve un token para almacenamiento JavaScript.
+              description: Cookie de sesiÃ³n HttpOnly; nunca se devuelve un token para almacenamiento JavaScript.
               schema:
                 type: string
         "401":
@@ -84,7 +84,7 @@ paths:
         - cookieAuth: []
       responses:
         "204":
-          description: Sesión cerrada.
+          description: SesiÃ³n cerrada.
         "401":
           $ref: "#/components/responses/Problem"
   /api/v1/accounts/me:
@@ -101,6 +101,80 @@ paths:
                 $ref: "#/components/schemas/CurrentAccount"
         "401":
           $ref: "#/components/responses/Problem"
+  /api/v1/changas:
+    get:
+      operationId: listAvailableChangas
+      summary: Lista changas disponibles para cuentas adultas verificadas
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Tablón de changas disponibles; nunca incluye la dirección exacta.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Changa"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createChanga
+      summary: Publica una changa como disponible
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChangaRequest"
+      responses:
+        "201":
+          description: Changa creada y disponible.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Changa"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/changas/{id}:
+    get:
+      operationId: getAvailableChanga
+      summary: Consulta el detalle público de una changa disponible
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Detalle público sin dirección exacta.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Changa"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
 components:
   securitySchemes:
     cookieAuth:
@@ -108,6 +182,86 @@ components:
       in: cookie
       name: ChangaQuest.Auth
   schemas:
+    CreateChangaRequest:
+      type: object
+      required: [description, reward, zone, exactAddress, materialsNeeded]
+      properties:
+        description:
+          type: string
+          minLength: 10
+          maxLength: 1000
+          description: Las longitudes se miden después de quitar espacios al inicio y al final.
+        reward:
+          type: integer
+          minimum: 1
+          maximum: 10000000
+          description: Recompensa entera en pesos argentinos (ARS).
+        zone:
+          type: string
+          minLength: 3
+          maxLength: 80
+          description: Barrio o zona aproximada; es pública. Longitud medida sin espacios al inicio y al final.
+        exactAddress:
+          type: string
+          minLength: 5
+          maxLength: 200
+          writeOnly: true
+          description: Dirección privada; nunca se devuelve en este contrato. Longitud medida sin espacios al inicio y al final.
+        materialsNeeded:
+          type: boolean
+          description: Respuesta explícita sobre si hacen falta herramientas o materiales.
+        materialsProvider:
+          type: string
+          enum: [requester, worker]
+          description: Obligatorio si materialsNeeded es true; se omite si es false.
+      oneOf:
+        - required: [materialsNeeded]
+          properties:
+            materialsNeeded:
+              type: boolean
+              enum: [false]
+          not:
+            required: [materialsProvider]
+        - required: [materialsNeeded, materialsProvider]
+          properties:
+            materialsNeeded:
+              type: boolean
+              enum: [true]
+            materialsProvider:
+              type: string
+              enum: [requester, worker]
+    Changa:
+      type: object
+      required: [id, description, reward, zone, materialsNeeded, materialsProvider, status, assignmentMode, isSample, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        reward:
+          type: integer
+          description: Recompensa publicada en ARS; no representa un pago procesado.
+        zone:
+          type: string
+        materialsNeeded:
+          type: boolean
+        materialsProvider:
+          type: string
+          nullable: true
+          enum: [requester, worker, null]
+        status:
+          type: string
+          enum: [available]
+        assignmentMode:
+          type: string
+          enum: [first_come]
+        isSample:
+          type: boolean
+          description: Indica datos ficticios de muestra; el cliente debe rotularlos como Ejemplo ficticio.
+        createdAt:
+          type: string
+          format: date-time
     AccountRegistrationAccepted:
       type: object
       required: [message]
@@ -130,10 +284,10 @@ components:
         password:
           type: string
           minLength: 12
-          description: Sin requisitos de composición.
+          description: Sin requisitos de composiciÃ³n.
         declaredAdult:
           type: boolean
-          description: Declaración afirmativa de tener 18 años o más; no se almacena fecha ni documento.
+          description: DeclaraciÃ³n afirmativa de tener 18 aÃ±os o mÃ¡s; no se almacena fecha ni documento.
     SignInRequest:
       type: object
       required: [email, password]
@@ -176,7 +330,7 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
     ValidationProblem:
-      description: Error de validación conforme a Problem Details.
+      description: Error de validaciÃ³n conforme a Problem Details.
       content:
         application/problem+json:
           schema:
