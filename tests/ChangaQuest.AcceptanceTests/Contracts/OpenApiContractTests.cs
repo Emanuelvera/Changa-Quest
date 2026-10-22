@@ -1,4 +1,4 @@
-namespace ChangaQuest.AcceptanceTests.Contracts;
+﻿namespace ChangaQuest.AcceptanceTests.Contracts;
 
 public class OpenApiContractTests
 {
@@ -16,6 +16,12 @@ public class OpenApiContractTests
         Assert.Contains("minLength: 12", contract, StringComparison.Ordinal);
         Assert.Contains("application/problem+json", contract, StringComparison.Ordinal);
         Assert.Contains("HttpOnly", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/{id}:", contract, StringComparison.Ordinal);
+        Assert.Contains("exactAddress:", contract, StringComparison.Ordinal);
+        Assert.Contains("materialsNeeded:", contract, StringComparison.Ordinal);
+        Assert.Contains("first_come", contract, StringComparison.Ordinal);
+        Assert.Contains("Ejemplo ficticio", contract, StringComparison.Ordinal);
 
         var registration = ExtractOperation(
             contract,

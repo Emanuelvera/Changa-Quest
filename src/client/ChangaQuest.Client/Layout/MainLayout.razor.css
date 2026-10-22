@@ -1,3 +1,23 @@
-.app-shell {
-    min-height: 100vh;
+﻿.site-header {
+    width: min(100% - 2rem, 58rem);
+    margin: 0 auto;
+    padding-top: 1rem;
+}
+
+.site-brand {
+    color: #20372c;
+    font-size: 1.15rem;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.primary-nav a.active {
+    border-color: #285d3f;
+    background: #edf3ec;
+}
+
+@media (max-width: 40rem) {
+    .site-header {
+        padding-top: .75rem;
+    }
 }

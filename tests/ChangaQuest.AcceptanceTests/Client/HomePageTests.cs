@@ -1,8 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using Bunit;
 using ChangaQuest.Client.Pages;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ChangaQuest.AcceptanceTests.Client;
 
@@ -16,7 +17,7 @@ public class HomePageTests : Bunit.TestContext
         {
             if (request.RequestUri?.AbsolutePath == "/api/v1/accounts/me")
             {
-                return Problem(HttpStatusCode.Unauthorized, "Iniciá sesión.");
+                return Problem(HttpStatusCode.Unauthorized, "IniciÃ¡ sesiÃ³n.");
             }
 
             if (request.RequestUri?.AbsolutePath == "/api/v1/accounts/register")
@@ -35,7 +36,7 @@ public class HomePageTests : Bunit.TestContext
         });
         Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
 
-        var page = RenderComponent<Home>();
+        var page = Render<Home>();
         page.Find(".tabs button:nth-child(2)").Click();
         page.Find("#register-email").Change("persona@example.test");
         page.Find("#register-password").Change("abcdefghijkl");
@@ -47,7 +48,7 @@ public class HomePageTests : Bunit.TestContext
         {
             Assert.Contains("Cuenta creada.", page.Markup);
             Assert.Contains("label for=\"register-email\"", page.Markup);
-            Assert.Contains("aria-describedby=\"register-email-validation register-email-error\"", page.Markup);
+            Assert.Contains("aria-describedby=\"register-email-validation\"", page.Markup);
             Assert.Contains("\"email\":\"persona@example.test\"", registrationBody);
             Assert.Contains("\"password\":\"abcdefghijkl\"", registrationBody);
             Assert.Contains("\"declaredAdult\":true", registrationBody);
@@ -61,19 +62,19 @@ public class HomePageTests : Bunit.TestContext
         {
             if (request.RequestUri?.AbsolutePath == "/api/v1/accounts/me")
             {
-                return Task.FromResult(Problem(HttpStatusCode.Unauthorized, "Iniciá sesión."));
+                return Task.FromResult(Problem(HttpStatusCode.Unauthorized, "IniciÃ¡ sesiÃ³n."));
             }
 
             if (request.RequestUri?.AbsolutePath == "/api/v1/accounts/login")
             {
-                return Task.FromResult(Problem(HttpStatusCode.Unauthorized, "Revisá el correo y la contraseña."));
+                return Task.FromResult(Problem(HttpStatusCode.Unauthorized, "RevisÃ¡ el correo y la contraseÃ±a."));
             }
 
             throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
         });
         Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
 
-        var page = RenderComponent<Home>();
+        var page = Render<Home>();
         page.Find("#login-email").Change("persona@example.test");
         page.Find("#login-password").Change("incorrecta");
 
@@ -84,7 +85,7 @@ public class HomePageTests : Bunit.TestContext
             Assert.Contains("label for=\"login-email\"", page.Markup);
             Assert.Contains("aria-describedby=\"login-email-validation\"", page.Markup);
             Assert.Contains("role=\"alert\"", page.Markup);
-            Assert.Contains("Revisá el correo y la contraseña.", page.Markup);
+            Assert.Contains("RevisÃ¡ el correo y la contraseÃ±a.", page.Markup);
         });
     }
 

@@ -1,0 +1,128 @@
+﻿@page "/tareas"
+@inject HttpClient Http
+
+<PageTitle>Ver tareas · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">TABLÓN LOCAL</p>
+        <h1>Ver tareas</h1>
+        <p class="intro">Consultá changas disponibles y sus datos principales antes de comprometerte. La dirección exacta se mantiene privada.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando changas…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
+    }
+    else if (!SignedIn)
+    {
+        <p class="status" role="status">Iniciá sesión con una cuenta adulta y correo verificado para ver las tareas.</p>
+        <a class="button-link" href="/">Ir a iniciar sesión</a>
+    }
+    else if (Changas.Count == 0)
+    {
+        <p class="status" role="status">Todavía no hay changas disponibles.</p>
+    }
+    else
+    {
+        <section class="changa-list" aria-label="Changas disponibles">
+            @foreach (var changa in Changas)
+            {
+                <article class="changa-card" @key="changa.Id">
+                    @if (changa.IsSample)
+                    {
+                        <p class="sample-label">Ejemplo ficticio</p>
+                    }
+                    <h2>@changa.Description</h2>
+                    <dl class="changa-details">
+                        <div><dt>Recompensa</dt><dd>@changa.Reward.ToString("N0") ARS</dd></div>
+                        <div><dt>Zona aproximada</dt><dd>@changa.Zone</dd></div>
+                        <div>
+                            <dt>Materiales</dt>
+                            <dd>@(changa.MaterialsNeeded ? MaterialsText(changa.MaterialsProvider) : "No hacen falta materiales")</dd>
+                        </div>
+                        <div><dt>Modalidad</dt><dd>Por orden de llegada</dd></div>
+                    </dl>
+                    <p class="status-label">Disponible</p>
+                </article>
+            }
+        </section>
+    }
+</main>
+
+@code {
+    private readonly List<ChangaView> Changas = [];
+    private bool Loading = true;
+    private bool SignedIn;
+    private string? Error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var account = await Http.GetAsync("/api/v1/accounts/me");
+            if (!account.IsSuccessStatusCode)
+            {
+                SignedIn = false;
+                Changas.Clear();
+                return;
+            }
+
+            SignedIn = true;
+            using var response = await Http.GetAsync("/api/v1/changas");
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = "No se pudieron cargar las changas. Intentá de nuevo.";
+                return;
+            }
+
+            var items = await response.Content.ReadFromJsonAsync<List<ChangaView>>();
+            Changas.Clear();
+            Changas.AddRange(items ?? []);
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el tablón. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta del tablón. Intentá de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La consulta tardó demasiado. Intentá de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private static string MaterialsText(string? provider) => provider switch
+    {
+        "requester" => "Hacen falta; los aporta quien publica",
+        "worker" => "Hacen falta; los aporta quien realiza",
+        _ => "Hacen falta materiales"
+    };
+
+    private sealed record ChangaView(
+        Guid Id,
+        string Description,
+        int Reward,
+        string Zone,
+        bool MaterialsNeeded,
+        string? MaterialsProvider,
+        string Status,
+        string AssignmentMode,
+        bool IsSample,
+        DateTimeOffset CreatedAt);
+}
