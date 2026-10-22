@@ -7,6 +7,8 @@ public sealed class Changa
     public int Reward { get; set; }
     public string Zone { get; set; } = string.Empty;
     public string ExactAddress { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
     public bool MaterialsNeeded { get; set; }
     public MaterialsProvider? MaterialsProvider { get; set; }
     public AssignmentMode AssignmentMode { get; set; }
@@ -42,4 +44,6 @@ public static class ChangaPolicy
     public const int MaximumZoneLength = 80;
     public const int MinimumExactAddressLength = 5;
     public const int MaximumExactAddressLength = 200;
+    public const double DefaultSearchLatitude = -31.4167;
+    public const double DefaultSearchLongitude = -64.1833;
 }

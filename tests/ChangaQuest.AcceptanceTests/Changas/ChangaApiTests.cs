@@ -195,6 +195,51 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
+    [Fact]
+    public async Task Board_filters_by_radius_and_returns_approximate_distance_without_exact_address()
+    {
+        using var client = await CreateVerifiedClientAsync();
+        var nearbyAddress = $"Calle cercana {Guid.NewGuid():N}";
+        var farAddress = $"Calle lejana {Guid.NewGuid():N}";
+        using var nearby = await client.PostAsJsonAsync(
+            "/api/v1/changas",
+            ValidRequest(nearbyAddress) with { latitude = -31.4167, longitude = -64.1833 });
+        using var far = await client.PostAsJsonAsync(
+            "/api/v1/changas",
+            ValidRequest(farAddress) with { latitude = -31.5000, longitude = -64.3000 });
+        Assert.Equal(HttpStatusCode.Created, nearby.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, far.StatusCode);
+
+        using var response = await client.GetAsync(
+            "/api/v1/changas?latitude=-31.4167&longitude=-64.1833&radiusKm=1");
+        var content = await response.Content.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(content);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(json.RootElement.EnumerateArray(), item =>
+            item.GetProperty("description").GetString() == "Una changa descriptiva de prueba.");
+        Assert.DoesNotContain(farAddress, content, StringComparison.Ordinal);
+        Assert.DoesNotContain(nearbyAddress, content, StringComparison.Ordinal);
+        Assert.All(json.RootElement.EnumerateArray(), item =>
+        {
+            Assert.True(item.GetProperty("distanceKm").GetDouble() <= 1);
+            Assert.False(item.TryGetProperty("exactAddress", out _));
+        });
+    }
+
+    [Fact]
+    public async Task Board_rejects_unsupported_radius()
+    {
+        using var client = await CreateVerifiedClientAsync();
+
+        using var response = await client.GetAsync(
+            "/api/v1/changas?latitude=-31.4167&longitude=-64.1833&radiusKm=2");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        Assert.True(body.RootElement.GetProperty("errors").TryGetProperty("radiusKm", out _));
+    }
+
     private async Task<HttpClient> CreateVerifiedClientAsync(AccountApiFactory? apiFactory = null)
     {
         var client = (apiFactory ?? factory).CreateClient();
@@ -221,7 +266,9 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         "Nueva Córdoba",
         exactAddress,
         true,
-        "worker");
+        "worker",
+        null,
+        null);
 
     private sealed record ChangaRequest(
         string description,
@@ -229,8 +276,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         string zone,
         string exactAddress,
         bool materialsNeeded,
-        string? materialsProvider);
+        string? materialsProvider,
+        double? latitude,
+        double? longitude);
 }
-
-
-

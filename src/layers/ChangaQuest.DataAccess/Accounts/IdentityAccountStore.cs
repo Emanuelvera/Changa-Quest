@@ -106,4 +106,9 @@ public sealed class IdentityAccountStore(
     public Task SignOutAsync() => signInManager.SignOutAsync();
 
     public Task<AppUser?> FindByIdAsync(string userId) => userManager.FindByIdAsync(userId);
+
+    public async Task SaveSearchPreferenceAsync(AppUser user)
+    {
+        await userManager.UpdateAsync(user);
+    }
 }

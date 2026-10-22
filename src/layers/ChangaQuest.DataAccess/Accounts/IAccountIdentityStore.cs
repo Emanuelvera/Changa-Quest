@@ -9,6 +9,7 @@ public interface IAccountIdentityStore
     Task<bool> ConfirmEmailAsync(string userId, string token);
     Task SignOutAsync();
     Task<AppUser?> FindByIdAsync(string userId);
+    Task SaveSearchPreferenceAsync(AppUser user);
 }
 
 public sealed record AccountCreationResult(

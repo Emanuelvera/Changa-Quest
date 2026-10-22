@@ -22,6 +22,7 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status403Forbidden);
         changas.MapGet("", ListAsync)
             .Produces<IReadOnlyList<ChangaPublicView>>(StatusCodes.Status200OK)
+            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
         changas.MapGet("/{id:guid}", FindAsync)
@@ -45,7 +46,9 @@ public static class ChangaEndpointExtensions
             ReadString(request, "exactAddress"),
             ReadBoolean(request, "materialsNeeded"),
             ReadString(request, "materialsProvider"),
-            request.ValueKind == JsonValueKind.Object && request.TryGetProperty("materialsProvider", out _));
+            request.ValueKind == JsonValueKind.Object && request.TryGetProperty("materialsProvider", out _),
+            ReadDouble(request, "latitude"),
+            ReadDouble(request, "longitude"));
         var result = await manager.CreateAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), command);
 
         return result.Status switch
@@ -68,12 +71,25 @@ public static class ChangaEndpointExtensions
         };
     }
 
-    private static async Task<IResult> ListAsync(ClaimsPrincipal principal, ChangaManager manager)
+    private static async Task<IResult> ListAsync(
+        double? latitude,
+        double? longitude,
+        int? radiusKm,
+        bool? savePreference,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
     {
-        var result = await manager.ListAvailableAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
-        return result.Status == ChangaManagerStatus.Success
-            ? Results.Ok(result.Changas)
-            : AccessProblem(result.Status);
+        var result = await manager.SearchAvailableAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier),
+            new ChangaSearchQuery(latitude, longitude, radiusKm, savePreference ?? false));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Changas),
+            ChangaManagerStatus.Invalid => Results.ValidationProblem(
+                result.Errors ?? new Dictionary<string, string[]>(),
+                title: "No se pudo buscar changas."),
+            _ => AccessProblem(result.Status)
+        };
     }
 
     private static async Task<IResult> FindAsync(
@@ -127,5 +143,13 @@ public static class ChangaEndpointExtensions
         request.TryGetProperty(property, out var value) &&
         value.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? value.GetBoolean()
+            : null;
+
+    private static double? ReadDouble(JsonElement request, string property) =>
+        request.ValueKind == JsonValueKind.Object &&
+        request.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.Number &&
+        value.TryGetDouble(out var result)
+            ? result
             : null;
 }
