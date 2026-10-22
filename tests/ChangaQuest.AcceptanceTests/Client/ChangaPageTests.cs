@@ -207,6 +207,46 @@ public sealed class ChangaPageTests : Bunit.TestContext
         app.Find("button").Click();
         app.WaitForAssertion(() => Assert.Contains("Todavía no hay changas disponibles", app.Markup));
     }
+
+    [Fact]
+    public void Detail_requires_explicit_take_and_reports_conflict_without_success()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}" && request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(Json(
+                    """{"id":"a1000000-0000-4000-8000-000000000001","description":"Ayudar a ordenar una biblioteca pequeña.","reward":12000,"zone":"Nueva Córdoba","materialsNeeded":false,"materialsProvider":null,"status":"available","assignmentMode":"first_come","isSample":false,"createdAt":"2026-01-01T12:00:00Z"}"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/take" && request.Method == HttpMethod.Post)
+            {
+                return Task.FromResult(Problem(
+                    HttpStatusCode.Conflict,
+                    "La changa ya fue asignada",
+                    """{"code":"changa_already_assigned"}"""));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+        Services.GetRequiredService<NavigationManager>().NavigateTo($"http://localhost/tareas/{id}");
+
+        var app = Render<App>();
+
+        app.WaitForAssertion(() =>
+        {
+            Assert.Contains("Tomar esta changa", app.Markup);
+            Assert.Contains("confirmación es una acción separada", app.Markup);
+        });
+        app.Find("button").Click();
+        app.WaitForAssertion(() =>
+        {
+            Assert.Contains("ya no está disponible", app.Markup);
+            Assert.DoesNotContain("La changa quedó asignada a vos", app.Markup);
+        });
+    }
     private static HttpResponseMessage Json(string content) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(content, Encoding.UTF8, "application/json")
@@ -231,6 +271,5 @@ public sealed class ChangaPageTests : Bunit.TestContext
             CancellationToken cancellationToken) => respond(request);
     }
 }
-
 
 

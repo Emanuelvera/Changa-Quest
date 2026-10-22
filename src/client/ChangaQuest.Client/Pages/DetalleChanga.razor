@@ -1,0 +1,153 @@
+@page "/tareas/{Id:guid}"
+@inject HttpClient Http
+
+<PageTitle>Detalle de changa · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">DETALLE DE CHANGA</p>
+        <h1>Revisá antes de tomar</h1>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando detalle…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <a class="button-link" href="/tareas">Volver al tablón</a>
+    }
+    else if (Changa is not null)
+    {
+        <article class="changa-card">
+            @if (Changa.IsSample)
+            {
+                <p class="sample-label">Ejemplo ficticio</p>
+            }
+            <h2>@Changa.Description</h2>
+            <dl class="changa-details">
+                <div><dt>Recompensa</dt><dd>@Changa.Reward.ToString("N0") ARS</dd></div>
+                <div><dt>Zona aproximada</dt><dd>@Changa.Zone</dd></div>
+                <div><dt>Materiales</dt><dd>@(Changa.MaterialsNeeded ? MaterialsText(Changa.MaterialsProvider) : "No hacen falta materiales")</dd></div>
+                <div><dt>Modalidad</dt><dd>Por orden de llegada</dd></div>
+            </dl>
+            @if (Taken)
+            {
+                <p class="status" role="status">La changa quedó asignada a vos.</p>
+            }
+            else if (Changa.Status == "available")
+            {
+                <button class="button" type="button" @onclick="TakeAsync" disabled="@Taking">@(Taking ? "Tomando…" : "Tomar esta changa")</button>
+                <p class="status">La confirmación es una acción separada y deliberada.</p>
+            }
+            else
+            {
+                <p class="status" role="status">Esta changa ya no está disponible.</p>
+            }
+        </article>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ChangaView? Changa;
+    private bool Loading = true;
+    private bool Taking;
+    private bool Taken;
+    private string? Error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.GetAsync($"/api/v1/changas/{Id}");
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                Error = "La changa ya no está disponible.";
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = "No se pudo cargar el detalle. Intentá de nuevo.";
+                return;
+            }
+
+            Changa = await response.Content.ReadFromJsonAsync<ChangaView>();
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el tablón. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer el detalle. Intentá de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private async Task TakeAsync()
+    {
+        Taking = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.PostAsync($"/api/v1/changas/{Id}/take", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Taken = true;
+                if (Changa is not null)
+                {
+                    Changa = Changa with { Status = "assigned" };
+                }
+
+                return;
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                await LoadAsync();
+                Error = "La changa ya no está disponible. Actualizamos su estado.";
+                return;
+            }
+
+            Error = "No se pudo tomar la changa. Intentá de nuevo.";
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. La changa no se marcó como tomada.";
+        }
+        finally
+        {
+            Taking = false;
+        }
+    }
+
+    private static string MaterialsText(string? provider) => provider switch
+    {
+        "requester" => "Hacen falta; los aporta quien publica",
+        "worker" => "Hacen falta; los aporta quien realiza",
+        _ => "Hacen falta materiales"
+    };
+
+    private sealed record ChangaView(
+        Guid Id,
+        string Description,
+        int Reward,
+        string Zone,
+        bool MaterialsNeeded,
+        string? MaterialsProvider,
+        string Status,
+        string AssignmentMode,
+        bool IsSample,
+        DateTimeOffset CreatedAt);
+}

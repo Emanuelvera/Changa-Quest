@@ -14,11 +14,14 @@ public sealed class Changa
     public string? AuthorId { get; set; }
     public bool IsSample { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public ChangaAssignment? Assignment { get; set; }
 }
 
 public enum ChangaStatus
 {
-    Available
+    Available,
+    Assigned,
+    Cancelled
 }
 
 public enum AssignmentMode
@@ -42,4 +45,13 @@ public static class ChangaPolicy
     public const int MaximumZoneLength = 80;
     public const int MinimumExactAddressLength = 5;
     public const int MaximumExactAddressLength = 200;
+}
+
+public sealed class ChangaAssignment
+{
+    public Guid Id { get; set; }
+    public Guid ChangaId { get; set; }
+    public string WorkerId { get; set; } = string.Empty;
+    public DateTimeOffset AssignedAt { get; set; }
+    public Changa Changa { get; set; } = null!;
 }

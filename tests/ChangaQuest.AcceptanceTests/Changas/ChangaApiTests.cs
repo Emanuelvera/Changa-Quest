@@ -195,6 +195,50 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
+    [Fact]
+    public async Task Verified_worker_takes_once_and_retry_is_idempotent()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+
+        using var first = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        using var retry = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        using var firstJson = await JsonDocument.ParseAsync(await first.Content.ReadAsStreamAsync());
+        using var retryJson = await JsonDocument.ParseAsync(await retry.Content.ReadAsStreamAsync());
+        Assert.Equal(
+            firstJson.RootElement.GetProperty("assignment").GetProperty("id").GetGuid(),
+            retryJson.RootElement.GetProperty("assignment").GetProperty("id").GetGuid());
+    }
+
+    [Fact]
+    public async Task Author_cannot_take_own_changa_and_other_worker_gets_stable_conflict()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var otherWorker = await CreateVerifiedClientAsync();
+        using var thirdWorker = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+
+        using var self = await author.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.Conflict, self.StatusCode);
+        using var selfBody = await JsonDocument.ParseAsync(await self.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_author_cannot_take", selfBody.RootElement.GetProperty("code").GetString());
+
+        using var taken = await otherWorker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+        using var conflict = await thirdWorker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        using var conflictBody = await JsonDocument.ParseAsync(await conflict.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_already_assigned", conflictBody.RootElement.GetProperty("code").GetString());
+    }
+
     private async Task<HttpClient> CreateVerifiedClientAsync(AccountApiFactory? apiFactory = null)
     {
         var client = (apiFactory ?? factory).CreateClient();
@@ -231,6 +275,4 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         bool materialsNeeded,
         string? materialsProvider);
 }
-
-
 

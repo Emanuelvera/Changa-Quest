@@ -23,6 +23,16 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(changa => changa.AssignmentMode).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.Property(changa => changa.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.HasIndex(changa => changa.IsSample);
+            entity.HasOne(changa => changa.Assignment)
+                .WithOne(assignment => assignment.Changa)
+                .HasForeignKey<ChangaAssignment>(assignment => assignment.ChangaId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<ChangaAssignment>(entity =>
+        {
+            entity.HasKey(assignment => assignment.Id);
+            entity.Property(assignment => assignment.WorkerId).HasMaxLength(450).IsRequired();
+            entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
         });
         builder.Entity<AppUser>()
             .HasIndex(user => user.NormalizedEmail)

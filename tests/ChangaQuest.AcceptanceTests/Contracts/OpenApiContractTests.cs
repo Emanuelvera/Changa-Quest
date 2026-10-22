@@ -18,9 +18,13 @@ public class OpenApiContractTests
         Assert.Contains("HttpOnly", contract, StringComparison.Ordinal);
         Assert.Contains("/api/v1/changas:", contract, StringComparison.Ordinal);
         Assert.Contains("/api/v1/changas/{id}:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/{id}/take:", contract, StringComparison.Ordinal);
+        Assert.Contains("changa_already_assigned", contract, StringComparison.Ordinal);
+        Assert.Contains("ChangaTakeResponse", contract, StringComparison.Ordinal);
         Assert.Contains("exactAddress:", contract, StringComparison.Ordinal);
         Assert.Contains("materialsNeeded:", contract, StringComparison.Ordinal);
         Assert.Contains("first_come", contract, StringComparison.Ordinal);
+        Assert.Contains("assigned", contract, StringComparison.Ordinal);
         Assert.Contains("Ejemplo ficticio", contract, StringComparison.Ordinal);
 
         var registration = ExtractOperation(
