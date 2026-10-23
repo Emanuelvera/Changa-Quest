@@ -284,6 +284,144 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         Assert.True(body.RootElement.GetProperty("errors").TryGetProperty("radiusKm", out _));
     }
 
+    [Fact]
+    public async Task Coordination_matrix_enforces_mutual_phone_consent_and_assigned_roles()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var outsider = await CreateVerifiedClientAsync();
+        var requesterPhone = "+54 (351) 234-5678";
+        var workerPhone = "351-123-4567";
+        var address = $"Dirección ficticia {Guid.NewGuid():N}";
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest(address));
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+
+        using var workerPending = await worker.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var workerPendingJson = await JsonDocument.ParseAsync(await workerPending.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, workerPending.StatusCode);
+        Assert.Equal(address, workerPendingJson.RootElement.GetProperty("exactAddress").GetString());
+        Assert.Null(workerPendingJson.RootElement.GetProperty("otherPhone").GetString());
+        Assert.False(workerPendingJson.RootElement.GetProperty("hasMutualConsent").GetBoolean());
+
+        using var authorPending = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var authorPendingJson = await JsonDocument.ParseAsync(await authorPending.Content.ReadAsStreamAsync());
+        Assert.Null(authorPendingJson.RootElement.GetProperty("exactAddress").GetString());
+        Assert.Null(authorPendingJson.RootElement.GetProperty("otherPhone").GetString());
+
+        using var requesterList = await author.GetAsync("/api/v1/coordinations");
+        var requesterListContent = await requesterList.Content.ReadAsStringAsync();
+        using var requesterListJson = JsonDocument.Parse(requesterListContent);
+        var requesterListItem = Assert.Single(requesterListJson.RootElement.EnumerateArray());
+        Assert.Null(requesterListItem.GetProperty("exactAddress").GetString());
+        Assert.DoesNotContain(address, requesterListContent, StringComparison.Ordinal);
+        using var workerList = await worker.GetAsync("/api/v1/coordinations");
+        var workerListContent = await workerList.Content.ReadAsStringAsync();
+        using var workerListJson = JsonDocument.Parse(workerListContent);
+        var workerListItem = Assert.Single(workerListJson.RootElement.EnumerateArray());
+        Assert.Null(workerListItem.GetProperty("exactAddress").GetString());
+        Assert.DoesNotContain(address, workerListContent, StringComparison.Ordinal);
+
+        using var forbiddenRead = await outsider.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var forbiddenBody = await JsonDocument.ParseAsync(await forbiddenRead.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenRead.StatusCode);
+        Assert.Equal("coordination_forbidden", forbiddenBody.RootElement.GetProperty("code").GetString());
+        using var forbiddenWrite = await outsider.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent",
+            new { sharePhone = true, phone = "3511234567" });
+        var forbiddenWriteContent = await forbiddenWrite.Content.ReadAsStringAsync();
+        using var forbiddenWriteBody = JsonDocument.Parse(forbiddenWriteContent);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenWrite.StatusCode);
+        Assert.Equal("coordination_forbidden", forbiddenWriteBody.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain(requesterPhone, forbiddenWriteContent, StringComparison.Ordinal);
+        using var unchangedAfterOutsider = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var unchangedAfterOutsiderJson = await JsonDocument.ParseAsync(await unchangedAfterOutsider.Content.ReadAsStreamAsync());
+        Assert.False(unchangedAfterOutsiderJson.RootElement.GetProperty("hasMutualConsent").GetBoolean());
+
+        using var invalid = await author.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent",
+            new { sharePhone = true, phone = "123-45" });
+        using var invalidBody = await JsonDocument.ParseAsync(await invalid.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.True(invalidBody.RootElement.GetProperty("errors").TryGetProperty("phone", out _));
+        using var missingPhone = await author.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent",
+            new { sharePhone = true });
+        using var missingPhoneBody = await JsonDocument.ParseAsync(await missingPhone.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, missingPhone.StatusCode);
+        Assert.Equal(
+            "Ingres\u00e1 un tel\u00e9fono ficticio v\u00e1lido con entre 8 y 15 d\u00edgitos.",
+            missingPhoneBody.RootElement.GetProperty("errors").GetProperty("phone")[0].GetString());
+        using var unchangedAfterInvalid = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var unchangedAfterInvalidJson = await JsonDocument.ParseAsync(await unchangedAfterInvalid.Content.ReadAsStreamAsync());
+        Assert.Equal("pending", unchangedAfterInvalidJson.RootElement.GetProperty("yourConsent").GetString());
+
+        using var requesterConsent = await author.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent",
+            new { sharePhone = true, phone = requesterPhone });
+        using var pendingAfterOne = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var pendingAfterOneJson = await JsonDocument.ParseAsync(await pendingAfterOne.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, requesterConsent.StatusCode);
+        Assert.Null(pendingAfterOneJson.RootElement.GetProperty("otherPhone").GetString());
+        Assert.Equal("not_shared", pendingAfterOneJson.RootElement.GetProperty("otherPartyConsent").GetString());
+
+        using var workerConsent = await worker.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent",
+            new { sharePhone = true, phone = workerPhone });
+        using var requesterMutual = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var requesterMutualJson = await JsonDocument.ParseAsync(await requesterMutual.Content.ReadAsStreamAsync());
+        using var workerMutual = await worker.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var workerMutualJson = await JsonDocument.ParseAsync(await workerMutual.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, workerConsent.StatusCode);
+        Assert.True(requesterMutualJson.RootElement.GetProperty("hasMutualConsent").GetBoolean());
+        Assert.Equal(workerPhone, requesterMutualJson.RootElement.GetProperty("otherPhone").GetString());
+        Assert.Equal(requesterPhone, workerMutualJson.RootElement.GetProperty("otherPhone").GetString());
+        Assert.Equal(address, workerMutualJson.RootElement.GetProperty("exactAddress").GetString());
+        Assert.Null(requesterMutualJson.RootElement.GetProperty("exactAddress").GetString());
+
+        using var revoke = await worker.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent",
+            new { sharePhone = false });
+        using var hiddenAfterRevoke = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var hiddenAfterRevokeJson = await JsonDocument.ParseAsync(await hiddenAfterRevoke.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+        Assert.False(hiddenAfterRevokeJson.RootElement.GetProperty("hasMutualConsent").GetBoolean());
+        Assert.Null(hiddenAfterRevokeJson.RootElement.GetProperty("otherPhone").GetString());
+
+        using var authorDecline = await author.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent",
+            new { sharePhone = false });
+        Assert.Equal(HttpStatusCode.OK, authorDecline.StatusCode);
+        using (var connection = new Microsoft.Data.SqlClient.SqlConnection(
+            $"Server=(localdb)\\MSSQLLocalDB;Database={factory.DatabaseName};Trusted_Connection=True;TrustServerCertificate=True"))
+        {
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Status FROM Changas WHERE Id = @Id";
+            command.Parameters.AddWithValue("@Id", id);
+            Assert.Equal("Assigned", await command.ExecuteScalarAsync());
+        }
+
+        using var assignments = await worker.GetAsync("/api/v1/coordinations");
+        using var assignmentsJson = await JsonDocument.ParseAsync(await assignments.Content.ReadAsStreamAsync());
+        Assert.Single(assignmentsJson.RootElement.EnumerateArray());
+
+        using var notAssigned = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var notAssignedJson = await JsonDocument.ParseAsync(await notAssigned.Content.ReadAsStreamAsync());
+        var availableId = notAssignedJson.RootElement.GetProperty("id").GetGuid();
+        using var noAssignment = await author.GetAsync($"/api/v1/changas/{availableId}/coordination");
+        using var noAssignmentBody = await JsonDocument.ParseAsync(await noAssignment.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Conflict, noAssignment.StatusCode);
+        Assert.Equal("changa_not_assigned", noAssignmentBody.RootElement.GetProperty("code").GetString());
+
+        using var missing = await author.GetAsync($"/api/v1/changas/{Guid.NewGuid()}/coordination");
+        using var missingBody = await JsonDocument.ParseAsync(await missing.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal("changa_not_found", missingBody.RootElement.GetProperty("code").GetString());
+    }
+
     private async Task<HttpClient> CreateVerifiedClientAsync(AccountApiFactory? apiFactory = null)
     {
         var client = (apiFactory ?? factory).CreateClient();

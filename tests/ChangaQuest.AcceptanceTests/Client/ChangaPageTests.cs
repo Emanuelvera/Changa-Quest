@@ -247,6 +247,100 @@ public sealed class ChangaPageTests : Bunit.TestContext
             Assert.DoesNotContain("La changa quedó asignada a vos", app.Markup);
         });
     }
+    [Fact]
+    public void Detail_shows_coordination_link_after_successful_take()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}")
+            {
+                return Task.FromResult(Json("""{"id":"a1000000-0000-4000-8000-000000000001","description":"Ayudar a ordenar una biblioteca.","reward":12000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","assignmentMode":"first_come","isSample":false,"createdAt":"2026-01-01T12:00:00Z"}"""));
+            }
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/take")
+            {
+                return Task.FromResult(Json("""{"changa":{"id":"a1000000-0000-4000-8000-000000000001"},"assignment":{"id":"b1000000-0000-4000-8000-000000000001","assignedAt":"2026-01-01T12:00:00Z"}}"""));
+            }
+            throw new InvalidOperationException($"Unexpected request: {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var app = Render<ChangaQuest.Client.Pages.DetalleChanga>(parameters => parameters.Add(component => component.Id, id));
+        app.WaitForAssertion(() => Assert.Contains("Tomar esta changa", app.Markup));
+        app.Find("button").Click();
+        app.WaitForAssertion(() => Assert.Contains($"/tareas/{id}/coordinacion", app.Markup));
+    }
+
+    [Fact]
+    public void Coordination_page_shows_worker_address_but_no_phone_before_mutual_consent_and_supports_decline()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        string? submitted = null;
+        var handler = new RecordingHandler(async request =>
+        {
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/coordination" && request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"pending","otherPartyConsent":"not_shared","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}""");
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/coordination/phone-consent" && request.Method == HttpMethod.Put)
+            {
+                submitted = await request.Content!.ReadAsStringAsync();
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"declined","otherPartyConsent":"not_shared","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}""");
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinacion>(parameters => parameters.Add(component => component.Id, id));
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Dirección ficticia 123", page.Markup, StringComparison.Ordinal);
+            Assert.Contains("permanecen ocultos", page.Markup);
+            Assert.Contains("teléfono ficticio", page.Markup);
+            Assert.DoesNotContain("<a", page.Markup, StringComparison.Ordinal);
+            Assert.Contains("label for=\"phone\"", page.Markup);
+        });
+
+        page.Find("button.button.secondary").Click();
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("La asignación sigue activa", page.Markup);
+            using var body = System.Text.Json.JsonDocument.Parse(submitted!);
+            Assert.False(body.RootElement.GetProperty("sharePhone").GetBoolean());
+            Assert.False(body.RootElement.TryGetProperty("phone", out _));
+        });
+    }
+
+    [Fact]
+    public void Coordinations_list_handles_unauthorized_access_with_a_clear_message()
+    {
+        var handler = new RecordingHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)));
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() => Assert.Contains("Inici\u00e1 sesi\u00f3n e intent\u00e1 de nuevo", page.Markup));
+    }
+
+    [Fact]
+    public void Coordinations_list_links_to_each_private_assignment()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var handler = new RecordingHandler(_ => Task.FromResult(Json("""[{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Pintar una pared interior.","role":"worker","yourConsent":"pending","otherPartyConsent":"not_shared","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}]""")));
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Pintar una pared interior", page.Markup);
+            Assert.DoesNotContain("Dirección ficticia 123", page.Markup);
+            Assert.Contains($"/tareas/{id}/coordinacion", page.Markup);
+        });
+    }
+
     private static HttpResponseMessage Json(string content) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(content, Encoding.UTF8, "application/json")

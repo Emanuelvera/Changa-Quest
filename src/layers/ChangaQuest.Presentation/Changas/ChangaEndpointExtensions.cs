@@ -36,6 +36,25 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapGet("/{id:guid}/coordination", GetCoordinationAsync)
+            .Produces<ChangaCoordinationView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPut("/{id:guid}/coordination/phone-consent", SetPhoneConsentAsync)
+            .Produces<ChangaCoordinationView>(StatusCodes.Status200OK)
+            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        endpoints.MapGet("/api/v1/coordinations", ListCoordinationsAsync)
+            .WithTags("Changas")
+            .RequireAuthorization()
+            .Produces<IReadOnlyList<ChangaCoordinationView>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         return endpoints;
     }
@@ -126,6 +145,93 @@ public static class ChangaEndpointExtensions
             "Cuenta no habilitada",
             "Solo las cuentas adultas con correo verificado pueden consultar changas.")
     };
+
+    private static async Task<IResult> GetCoordinationAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.GetCoordinationAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Coordination),
+            ChangaManagerStatus.NotFound => CoordinationProblem(
+                StatusCodes.Status404NotFound,
+                "Changa no encontrada",
+                "No existe una changa con ese identificador.",
+                "changa_not_found"),
+            ChangaManagerStatus.NotAssigned => CoordinationProblem(
+                StatusCodes.Status409Conflict,
+                "Changa sin asignar",
+                "La coordinación está disponible solo después de asignar la changa.",
+                "changa_not_assigned"),
+            ChangaManagerStatus.CoordinationForbidden => CoordinationProblem(
+                StatusCodes.Status403Forbidden,
+                "Acceso denegado",
+                "Solo las partes asignadas pueden consultar la coordinación.",
+                "coordination_forbidden"),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static async Task<IResult> SetPhoneConsentAsync(
+        Guid id,
+        JsonElement request,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var sharePhone = ReadBoolean(request, "sharePhone");
+        if (sharePhone is null)
+        {
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]> { ["sharePhone"] = ["Indicá si aceptás compartir tu teléfono ficticio."] },
+                title: "No se pudo guardar el consentimiento.");
+        }
+
+        var result = await manager.SetPhoneConsentAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier),
+            id,
+            sharePhone.Value,
+            ReadString(request, "phone"));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Coordination),
+            ChangaManagerStatus.InvalidPhone => Results.ValidationProblem(
+                result.Errors ?? new Dictionary<string, string[]>(),
+                title: "No se pudo guardar el consentimiento."),
+            ChangaManagerStatus.NotFound => CoordinationProblem(
+                StatusCodes.Status404NotFound,
+                "Changa no encontrada",
+                "No existe una changa con ese identificador.",
+                "changa_not_found"),
+            ChangaManagerStatus.NotAssigned => CoordinationProblem(
+                StatusCodes.Status409Conflict,
+                "Changa sin asignar",
+                "La coordinación está disponible solo después de asignar la changa.",
+                "changa_not_assigned"),
+            ChangaManagerStatus.CoordinationForbidden => CoordinationProblem(
+                StatusCodes.Status403Forbidden,
+                "Acceso denegado",
+                "Solo las partes asignadas pueden cambiar el consentimiento.",
+                "coordination_forbidden"),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static async Task<IResult> ListCoordinationsAsync(
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.ListCoordinationsAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Coordinations),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static IResult CoordinationProblem(int statusCode, string title, string detail, string code) =>
+        Problem(statusCode, title, detail, code);
 
     private static async Task<IResult> TakeAsync(
         Guid id,

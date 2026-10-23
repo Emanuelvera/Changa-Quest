@@ -1,0 +1,95 @@
+@page "/coordinaciones"
+@inject HttpClient Http
+
+<PageTitle>Mis changas · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">MIS CHANGAS</p>
+        <h1>Coordinaciones</h1>
+        <p class="intro">Consultá las changas que tenés asignadas y sus datos privados autorizados.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando tus coordinaciones…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
+    }
+    else if (Coordinations.Count == 0)
+    {
+        <p class="status" role="status">Todavía no tenés changas asignadas para coordinar.</p>
+    }
+    else
+    {
+        <section class="changa-list" aria-label="Changas asignadas">
+            @foreach (var item in Coordinations)
+            {
+                <article class="changa-card" @key="item.ChangaId">
+                    <h2>@item.Description</h2>
+                    <p>Participás como @(item.Role == "worker" ? "persona realizadora" : "persona solicitante").</p>
+                    @if (item.HasMutualConsent && !string.IsNullOrWhiteSpace(item.OtherPhone))
+                    {
+                        <p class="status" role="status">La otra parte aceptó compartir su teléfono ficticio: <strong>@item.OtherPhone</strong></p>
+                    }
+                    else
+                    {
+                        <p class="status" role="status">@(item.OtherPartyConsent == "accepted" ? "La otra parte aceptó; falta tu decisión para compartir los teléfonos." : "La otra parte no compartió su teléfono; los teléfonos siguen ocultos.")</p>
+                    }
+                    <a class="button-link" href="@($"/tareas/{item.ChangaId}/coordinacion")">Ver coordinación</a>
+                </article>
+            }
+        </section>
+    }
+</main>
+
+@code {
+    private readonly List<CoordinationView> Coordinations = [];
+    private bool Loading = true;
+    private string? Error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.GetAsync("/api/v1/coordinations");
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = "No se pudieron cargar tus changas asignadas. Iniciá sesión e intentá de nuevo.";
+                return;
+            }
+
+            var items = await response.Content.ReadFromJsonAsync<List<CoordinationView>>();
+            Coordinations.Clear();
+            Coordinations.AddRange(items ?? []);
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. Intentá de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private sealed record CoordinationView(
+        Guid ChangaId,
+        string Description,
+        string Role,
+        string YourConsent,
+        string OtherPartyConsent,
+        bool HasMutualConsent,
+        string? OtherPhone);
+}

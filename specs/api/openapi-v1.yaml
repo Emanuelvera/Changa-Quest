@@ -211,6 +211,113 @@ paths:
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/Problem"
+  /api/v1/changas/{id}/coordination:
+    get:
+      operationId: getChangaCoordination
+      summary: Consulta coordinación solo para las partes asignadas
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Datos autorizados; dirección exacta solo para la persona realizadora y teléfonos solo con consentimiento mutuo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCoordination"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código coordination_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: El identificador no existe; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: Conflicto; la changa no esta asignada (código changa_not_assigned).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/coordination/phone-consent:
+    put:
+      operationId: setChangaPhoneConsent
+      summary: Acepta, rechaza o revoca el consentimiento telefónico propio
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhoneConsentRequest"
+      responses:
+        "200":
+          description: Preferencia guardada; los teléfonos se muestran solo con consentimiento mutuo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCoordination"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código coordination_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: El identificador no existe; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: Conflicto; la changa no esta asignada (código changa_not_assigned).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/coordinations:
+    get:
+      operationId: listCoordinations
+      summary: Lista las coordinaciones de las changas asignadas a la cuenta
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Lista privada de asignaciones de la persona autenticada; la dirección exacta siempre es null y se consulta en la coordinación individual.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChangaCoordination"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
   /api/v1/changas/{id}/take:
     post:
       operationId: takeChanga
@@ -347,6 +454,60 @@ components:
           format: double
           minimum: 0
           description: Distancia aproximada en línea recta desde la ubicación de búsqueda.
+    PhoneConsentRequest:
+      type: object
+      required: [sharePhone]
+      properties:
+        sharePhone:
+          type: boolean
+          description: Decisión explícita de la parte autenticada.
+        phone:
+          type: string
+          maxLength: 32
+          description: Teléfono ficticio obligatorio y validado solo si sharePhone es true; se descarta al rechazar.
+      description: Al aceptar, phone debe contener entre 8 y 15 dígitos y solo dígitos, +, espacios, guiones o paréntesis.
+      oneOf:
+        - required: [sharePhone, phone]
+          properties:
+            sharePhone:
+              type: boolean
+              enum: [true]
+        - required: [sharePhone]
+          properties:
+            sharePhone:
+              type: boolean
+              enum: [false]
+          not:
+            required: [phone]
+    ChangaCoordination:
+      type: object
+      required: [changaId, description, role, yourConsent, otherPartyConsent, hasMutualConsent, otherPhone, exactAddress]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        role:
+          type: string
+          enum: [requester, worker]
+        yourConsent:
+          type: string
+          enum: [pending, accepted, declined]
+        otherPartyConsent:
+          type: string
+          enum: [accepted, not_shared]
+          description: No distingue entre rechazo y falta de respuesta.
+        hasMutualConsent:
+          type: boolean
+        otherPhone:
+          type: string
+          nullable: true
+          description: Teléfono ficticio de la otra parte, solamente con consentimiento mutuo.
+        exactAddress:
+          type: string
+          nullable: true
+          description: Dirección exacta ficticia, solo para la persona realizadora asignada.
     ChangaTakeResponse:
       type: object
       required: [changa, assignment]

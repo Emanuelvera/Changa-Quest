@@ -34,6 +34,10 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         {
             entity.HasKey(assignment => assignment.Id);
             entity.Property(assignment => assignment.WorkerId).HasMaxLength(450).IsRequired();
+            entity.Property(assignment => assignment.RequesterPhoneConsent).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.Property(assignment => assignment.RequesterPhone).HasMaxLength(ChangaPolicy.MaximumPhoneLength);
+            entity.Property(assignment => assignment.WorkerPhoneConsent).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.Property(assignment => assignment.WorkerPhone).HasMaxLength(ChangaPolicy.MaximumPhoneLength);
             entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
         });
         builder.Entity<AppUser>()

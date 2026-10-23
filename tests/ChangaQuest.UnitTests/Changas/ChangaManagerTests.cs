@@ -128,13 +128,128 @@ public sealed class ChangaManagerTests
         Assert.Empty(store.Assignments);
     }
 
+    [Fact]
+    public async Task Coordination_shares_phones_only_after_mutual_consent_and_only_worker_sees_address()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var requesterPending = await manager.GetCoordinationAsync("author-id", changa.Id);
+        Assert.Equal(ChangaManagerStatus.Success, requesterPending.Status);
+        Assert.False(requesterPending.Coordination!.HasMutualConsent);
+        Assert.Null(requesterPending.Coordination.OtherPhone);
+        Assert.Null(requesterPending.Coordination.ExactAddress);
+
+        Assert.Equal(ChangaManagerStatus.Success,
+            (await manager.SetPhoneConsentAsync("author-id", changa.Id, true, "+1 (234) 567-8901")).Status);
+        Assert.Null((await manager.GetCoordinationAsync("author-id", changa.Id)).Coordination!.OtherPhone);
+        Assert.Equal(ChangaManagerStatus.Success,
+            (await manager.SetPhoneConsentAsync("worker-id", changa.Id, true, "12345678901")).Status);
+
+        var requester = (await manager.GetCoordinationAsync("author-id", changa.Id)).Coordination!;
+        var worker = (await manager.GetCoordinationAsync("worker-id", changa.Id)).Coordination!;
+        Assert.True(requester.HasMutualConsent);
+        Assert.Equal("12345678901", requester.OtherPhone);
+        Assert.Null(requester.ExactAddress);
+        Assert.Equal("+1 (234) 567-8901", worker.OtherPhone);
+        Assert.Equal(changa.ExactAddress, worker.ExactAddress);
+
+        await manager.SetPhoneConsentAsync("worker-id", changa.Id, false, "12345678901");
+        var afterRevocation = (await manager.GetCoordinationAsync("author-id", changa.Id)).Coordination!;
+        Assert.False(afterRevocation.HasMutualConsent);
+        Assert.Null(afterRevocation.OtherPhone);
+        Assert.Null(changa.Assignment!.WorkerPhone);
+    }
+
+    [Fact]
+    public async Task Coordination_rejects_invalid_phone_and_forbids_outsiders()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var invalid = await manager.SetPhoneConsentAsync("author-id", changa.Id, true, "123-45");
+        Assert.Equal(ChangaManagerStatus.InvalidPhone, invalid.Status);
+        Assert.Contains("phone", invalid.Errors!.Keys);
+        Assert.Equal(PhoneConsentStatus.Pending, changa.Assignment!.RequesterPhoneConsent);
+        Assert.Null(changa.Assignment.RequesterPhone);
+
+        Assert.Equal(ChangaManagerStatus.CoordinationForbidden,
+            (await manager.GetCoordinationAsync("outsider-id", changa.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.CoordinationForbidden,
+            (await manager.SetPhoneConsentAsync("outsider-id", changa.Id, true, "12345678901")).Status);
+        Assert.Equal(ChangaManagerStatus.NotFound,
+            (await manager.GetCoordinationAsync("author-id", Guid.NewGuid())).Status);
+
+        changa.Status = ChangaStatus.Available;
+        changa.Assignment = null;
+        Assert.Equal(ChangaManagerStatus.NotAssigned,
+            (await manager.GetCoordinationAsync("author-id", changa.Id)).Status);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("12345678", true)]
+    [InlineData("+54 (351) 234-5678", true)]
+    [InlineData("123456789012345", true)]
+    [InlineData("1234567", false)]
+    [InlineData("1234567890123456", false)]
+    public async Task Phone_consent_accepts_only_supported_digit_lengths(string? phone, bool valid)
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var result = await manager.SetPhoneConsentAsync("author-id", changa.Id, true, phone);
+
+        Assert.Equal(valid ? ChangaManagerStatus.Success : ChangaManagerStatus.InvalidPhone, result.Status);
+        Assert.Equal(valid ? PhoneConsentStatus.Accepted : PhoneConsentStatus.Pending,
+            changa.Assignment!.RequesterPhoneConsent);
+    }
+
+    [Fact]
+    public async Task Phone_consent_trims_whitespace_before_checking_the_storage_length_limit()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        var paddedPhone = $"{new string(' ', 20)}+1 (234) 567-8901{new string(' ', 20)}";
+
+        var result = await manager.SetPhoneConsentAsync("author-id", changa.Id, true, paddedPhone);
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal("+1 (234) 567-8901", changa.Assignment!.RequesterPhone);
+    }
+
+    [Fact]
+    public async Task Coordination_list_contains_only_assignments_for_current_account()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var workerList = await manager.ListCoordinationsAsync("worker-id");
+        var requesterList = await manager.ListCoordinationsAsync("author-id");
+        var outsiderList = await manager.ListCoordinationsAsync("outsider-id");
+
+        Assert.Single(workerList.Coordinations!);
+        Assert.Single(requesterList.Coordinations!);
+        Assert.Empty(outsiderList.Coordinations!);
+    }
+
     private static Changa AvailableChanga(string authorId) => new()
     {
         Id = Guid.NewGuid(),
         Description = "Descripción válida para una changa.",
         Reward = 10000,
-        Zone = "Nueva C?rdoba",
-        ExactAddress = "Direcci?n privada 123",
+        Zone = "Nueva Córdoba",
+        ExactAddress = "Dirección privada 123",
         MaterialsNeeded = false,
         AssignmentMode = AssignmentMode.FirstCome,
         Status = ChangaStatus.Available,
@@ -218,8 +333,8 @@ public sealed class ChangaManagerTests
         Id = id,
         Description = "Descripción válida para muestra.",
         Reward = 1000,
-        Zone = "Nueva C?rdoba",
-        ExactAddress = "Direcci?n privada 123",
+        Zone = "Nueva Córdoba",
+        ExactAddress = "Dirección privada 123",
         MaterialsNeeded = false,
         AssignmentMode = AssignmentMode.FirstCome,
         Status = ChangaStatus.Available,
@@ -263,6 +378,27 @@ public sealed class ChangaManagerTests
             return Task.CompletedTask;
         }
 
+        public Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone)
+        {
+            var assignment = Changas.Single(item => item.Id == id).Assignment!;
+            if (isAuthor)
+            {
+                assignment.RequesterPhoneConsent = status;
+                assignment.RequesterPhone = phone;
+            }
+            else
+            {
+                assignment.WorkerPhoneConsent = status;
+                assignment.WorkerPhone = phone;
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId) =>
+            Task.FromResult<IReadOnlyList<ChangaAssignment>>(Assignments
+                .Where(item => item.WorkerId == userId || item.Changa.AuthorId == userId)
+                .ToArray());
+
         public Task<Changa?> FindByIdAsync(Guid id) =>
             Task.FromResult(Changas.SingleOrDefault(item => item.Id == id));
 
@@ -291,7 +427,8 @@ public sealed class ChangaManagerTests
                 Id = Guid.NewGuid(),
                 ChangaId = changa.Id,
                 WorkerId = workerId,
-                AssignedAt = DateTimeOffset.UtcNow
+                AssignedAt = DateTimeOffset.UtcNow,
+                Changa = changa
             };
             changa.Assignment = assignment;
             changa.Status = ChangaStatus.Assigned;

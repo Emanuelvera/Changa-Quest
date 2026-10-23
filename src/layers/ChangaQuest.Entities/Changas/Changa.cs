@@ -47,8 +47,18 @@ public static class ChangaPolicy
     public const int MaximumZoneLength = 80;
     public const int MinimumExactAddressLength = 5;
     public const int MaximumExactAddressLength = 200;
+    public const int MinimumPhoneDigits = 8;
+    public const int MaximumPhoneDigits = 15;
+    public const int MaximumPhoneLength = 32;
     public const double DefaultSearchLatitude = -31.4167;
     public const double DefaultSearchLongitude = -64.1833;
+}
+
+public enum PhoneConsentStatus
+{
+    Pending,
+    Accepted,
+    Declined
 }
 
 public sealed class ChangaAssignment
@@ -57,5 +67,9 @@ public sealed class ChangaAssignment
     public Guid ChangaId { get; set; }
     public string WorkerId { get; set; } = string.Empty;
     public DateTimeOffset AssignedAt { get; set; }
+    public PhoneConsentStatus RequesterPhoneConsent { get; set; }
+    public string? RequesterPhone { get; set; }
+    public PhoneConsentStatus WorkerPhoneConsent { get; set; }
+    public string? WorkerPhone { get; set; }
     public Changa Changa { get; set; } = null!;
 }

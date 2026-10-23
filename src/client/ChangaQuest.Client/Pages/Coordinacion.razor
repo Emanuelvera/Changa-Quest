@@ -1,0 +1,211 @@
+@page "/tareas/{Id:guid}/coordinacion"
+@inject HttpClient Http
+
+<PageTitle>Coordinar changa · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">COORDINACIÓN PRIVADA</p>
+        <h1>Coordinar esta changa</h1>
+        <p class="intro">La coordinación es solo para las dos partes asignadas. No hay chat ni canal alternativo de contacto.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando coordinación…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
+    }
+    else if (Coordination is not null)
+    {
+        <section class="account-card" aria-labelledby="coordination-heading">
+            <h2 id="coordination-heading">@Coordination.Description</h2>
+            @if (!string.IsNullOrWhiteSpace(Coordination.ExactAddress))
+            {
+                <p><strong>Dirección exacta</strong>: @Coordination.ExactAddress</p>
+            }
+            @if (Coordination.HasMutualConsent && !string.IsNullOrWhiteSpace(Coordination.OtherPhone))
+            {
+                <p class="status" role="status">La otra parte también aceptó compartir su teléfono ficticio: <strong>@Coordination.OtherPhone</strong></p>
+            }
+            else
+            {
+                <p class="status" role="status">La otra parte @(Coordination.OtherPartyConsent == "accepted" ? "aceptó compartir su teléfono ficticio" : "no compartió su teléfono"). Los teléfonos permanecen ocultos hasta que ambas partes acepten.</p>
+            }
+            <p class="intro">Esta demostración usa teléfonos ficticios. No cargues ni compartas un número real.</p>
+
+            <div class="field">
+                <label for="phone">Tu teléfono ficticio (8 a 15 dígitos)</label>
+                <input id="phone" type="tel" autocomplete="off" maxlength="32" @bind="Phone"
+                       aria-describedby="phone-hint phone-error" aria-invalid="@(!string.IsNullOrWhiteSpace(PhoneError))" />
+                <p id="phone-hint" class="hint">Se guarda solo en esta asignación y se descarta si rechazás o revocás.</p>
+                @if (!string.IsNullOrWhiteSpace(PhoneError))
+                {
+                    <p id="phone-error" class="field-error" role="alert">@PhoneError</p>
+                }
+            </div>
+            <p>Tu respuesta actual: <strong>@YourConsentText</strong></p>
+            <div class="coordination-actions">
+                <button class="button" type="button" @onclick="() => SetConsentAsync(true)" disabled="@Saving">@(Saving ? "Guardando…" : "Acepto compartir mi teléfono ficticio")</button>
+                <button class="button secondary" type="button" @onclick="() => SetConsentAsync(false)" disabled="@Saving">No compartir / revocar</button>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Success))
+            {
+                <p class="success-message" role="status">@Success</p>
+            }
+        </section>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private CoordinationView? Coordination;
+    private bool Loading = true;
+    private bool Saving;
+    private string Phone = string.Empty;
+    private string? Error;
+    private string? PhoneError;
+    private string? Success;
+
+    private string YourConsentText => Coordination?.YourConsent switch
+    {
+        "accepted" => "aceptaste compartir tu teléfono ficticio",
+        "declined" => "no compartís tu teléfono",
+        _ => "todavía no respondiste"
+    };
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.GetAsync($"/api/v1/changas/{Id}/coordination");
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = await ReadErrorAsync(response, "No se pudo cargar la coordinación. Intentá de nuevo.");
+                return;
+            }
+
+            Coordination = await response.Content.ReadFromJsonAsync<CoordinationView>();
+            if (Coordination is null)
+            {
+                Error = "No se pudo leer la coordinación. Intentá de nuevo.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. Intentá de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private async Task SetConsentAsync(bool sharePhone)
+    {
+        Saving = true;
+        Error = null;
+        PhoneError = null;
+        Success = null;
+        try
+        {
+            var request = new Dictionary<string, object?> { ["sharePhone"] = sharePhone };
+            if (sharePhone)
+            {
+                request["phone"] = Phone;
+            }
+            using var response = await Http.PutAsJsonAsync(
+                $"/api/v1/changas/{Id}/coordination/phone-consent",
+                request);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                {
+                    PhoneError = await ReadPhoneErrorAsync(response);
+                }
+                else
+                {
+                    Error = await ReadErrorAsync(response, "No se pudo guardar tu respuesta. Intentá de nuevo.");
+                }
+                return;
+            }
+
+            Coordination = await response.Content.ReadFromJsonAsync<CoordinationView>();
+            Success = sharePhone
+                ? "Guardamos tu aceptación. Los teléfonos solo se muestran si la otra parte también acepta."
+                : "Guardamos tu decisión. La asignación sigue activa y los teléfonos permanecen ocultos.";
+            if (!sharePhone)
+            {
+                Phone = string.Empty;
+            }
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. No confirmamos el cambio; podés volver a intentarlo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. Intentá cargar la coordinación de nuevo.";
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private static async Task<string> ReadPhoneErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("errors", out var errors) && errors.TryGetProperty("phone", out var fieldErrors))
+            {
+                return fieldErrors.EnumerateArray().FirstOrDefault().GetString()
+                    ?? "Ingresá un teléfono ficticio válido con entre 8 y 15 dígitos.";
+            }
+        }
+        catch (JsonException)
+        {
+            return "No se pudo validar el teléfono ficticio. Revisá el dato e intentá de nuevo.";
+        }
+        return "Ingresá un teléfono ficticio válido con entre 8 y 15 dígitos.";
+    }
+
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response, string fallback)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("detail", out var detail) && !string.IsNullOrWhiteSpace(detail.GetString()))
+            {
+                return detail.GetString()!;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        return fallback;
+    }
+
+    private sealed record CoordinationView(
+        Guid ChangaId,
+        string Description,
+        string Role,
+        string YourConsent,
+        string OtherPartyConsent,
+        bool HasMutualConsent,
+        string? OtherPhone,
+        string? ExactAddress);
+}
