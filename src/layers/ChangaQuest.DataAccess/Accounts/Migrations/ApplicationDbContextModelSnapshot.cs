@@ -165,6 +165,31 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.ToTable("Changas");
                 });
 
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AssignedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ChangaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("WorkerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangaId")
+                        .IsUnique();
+
+                    b.ToTable("ChangaAssignment");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
@@ -298,6 +323,17 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaAssignment", b =>
+                {
+                    b.HasOne("ChangaQuest.Entities.Changas.Changa", "Changa")
+                        .WithOne("Assignment")
+                        .HasForeignKey("ChangaQuest.Entities.Changas.ChangaAssignment", "ChangaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Changa");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -347,6 +383,11 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.Changa", b =>
+                {
+                    b.Navigation("Assignment");
                 });
 #pragma warning restore 612, 618
         }

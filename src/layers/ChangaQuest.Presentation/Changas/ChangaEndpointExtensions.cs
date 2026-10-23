@@ -30,6 +30,12 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
+        changas.MapPost("/{id:guid}/take", TakeAsync)
+            .Produces<ChangaTakeResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return endpoints;
     }
@@ -121,8 +127,45 @@ public static class ChangaEndpointExtensions
             "Solo las cuentas adultas con correo verificado pueden consultar changas.")
     };
 
-    private static IResult Problem(int statusCode, string title, string detail) =>
-        Results.Problem(statusCode: statusCode, title: title, detail: detail);
+    private static async Task<IResult> TakeAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.TakeAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(new ChangaTakeResponse(result.Changa!, result.Assignment!)),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound,
+                "Changa no encontrada",
+                "No existe una changa con ese identificador.",
+                "changa_not_found"),
+            ChangaManagerStatus.SelfAssignment => Problem(
+                StatusCodes.Status409Conflict,
+                "No podés tomar tu propia changa",
+                "La persona que publica no puede tomar su propia changa.",
+                "changa_author_cannot_take"),
+            ChangaManagerStatus.AlreadyAssigned => Problem(
+                StatusCodes.Status409Conflict,
+                "La changa ya fue asignada",
+                "Otra persona ya tomó esta changa.",
+                "changa_already_assigned"),
+            ChangaManagerStatus.NotAvailable => Problem(
+                StatusCodes.Status409Conflict,
+                "La changa ya no está disponible",
+                "La changa cambió de estado y ya no se puede tomar.",
+                "changa_not_available"),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static IResult Problem(int statusCode, string title, string detail, string? code = null) =>
+        Results.Problem(
+            statusCode: statusCode,
+            title: title,
+            detail: detail,
+            extensions: code is null ? null : new Dictionary<string, object?> { ["code"] = code });
 
     private static string? ReadString(JsonElement request, string property) =>
         request.ValueKind == JsonValueKind.Object &&
@@ -153,3 +196,7 @@ public static class ChangaEndpointExtensions
             ? result
             : null;
 }
+
+public sealed record ChangaTakeResponse(
+    ChangaPublicView Changa,
+    ChangaAssignmentView Assignment);

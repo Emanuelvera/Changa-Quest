@@ -69,6 +69,79 @@ public sealed class ChangaManagerTests
     }
 
     [Fact]
+    public async Task Eligible_worker_takes_another_persons_available_changa_once()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.TakeAsync("worker-id", changa.Id);
+        var retry = await manager.TakeAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal(ChangaManagerStatus.Success, retry.Status);
+        Assert.Equal(result.Assignment?.Id, retry.Assignment?.Id);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+        Assert.Single(store.Assignments);
+    }
+
+    [Fact]
+    public async Task Author_cannot_take_own_changa()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.TakeAsync("author-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.SelfAssignment, result.Status);
+        Assert.Equal(ChangaStatus.Available, changa.Status);
+        Assert.Empty(store.Assignments);
+    }
+
+    [Fact]
+    public async Task Different_worker_gets_conflict_after_assignment()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        await manager.TakeAsync("first-worker", changa.Id);
+        var result = await manager.TakeAsync("second-worker", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.AlreadyAssigned, result.Status);
+        Assert.Single(store.Assignments);
+        Assert.Equal("first-worker", store.Assignments[0].WorkerId);
+    }
+
+    [Fact]
+    public async Task Cancelled_changa_cannot_be_taken()
+    {
+        var changa = AvailableChanga("author-id");
+        changa.Status = ChangaStatus.Cancelled;
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.TakeAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.NotAvailable, result.Status);
+        Assert.Empty(store.Assignments);
+    }
+
+    private static Changa AvailableChanga(string authorId) => new()
+    {
+        Id = Guid.NewGuid(),
+        Description = "Descripción válida para una changa.",
+        Reward = 10000,
+        Zone = "Nueva C?rdoba",
+        ExactAddress = "Direcci?n privada 123",
+        MaterialsNeeded = false,
+        AssignmentMode = AssignmentMode.FirstCome,
+        Status = ChangaStatus.Available,
+        AuthorId = authorId,
+        CreatedAt = DateTimeOffset.UtcNow
+    };
+
     public async Task Search_uses_three_kilometres_by_default_and_excludes_items_outside_radius()
     {
         var store = new FakeChangaStore
@@ -145,8 +218,8 @@ public sealed class ChangaManagerTests
         Id = id,
         Description = "Descripción válida para muestra.",
         Reward = 1000,
-        Zone = "Nueva Córdoba",
-        ExactAddress = "Dirección privada 123",
+        Zone = "Nueva C?rdoba",
+        ExactAddress = "Direcci?n privada 123",
         MaterialsNeeded = false,
         AssignmentMode = AssignmentMode.FirstCome,
         Status = ChangaStatus.Available,
@@ -154,7 +227,6 @@ public sealed class ChangaManagerTests
         Longitude = longitude,
         CreatedAt = DateTimeOffset.UtcNow
     };
-
     private static ChangaCreateCommand ValidCommand() => new(
         "Descripción válida para una changa.",
         10000,
@@ -167,6 +239,9 @@ public sealed class ChangaManagerTests
     private sealed class FakeChangaStore : IChangaStore
     {
         public List<Changa> Changas { get; set; } = [];
+        public List<ChangaAssignment> Assignments { get; } = [];
+
+        public FakeChangaStore(params Changa[] changas) => Changas.AddRange(changas);
 
         public Task AddAsync(Changa changa)
         {
@@ -186,6 +261,42 @@ public sealed class ChangaManagerTests
         {
             Changas.AddRange(samples.Where(sample => Changas.All(existing => existing.Id != sample.Id)));
             return Task.CompletedTask;
+        }
+
+        public Task<Changa?> FindByIdAsync(Guid id) =>
+            Task.FromResult(Changas.SingleOrDefault(item => item.Id == id));
+
+        public Task<ChangaTakePersistenceResult> TakeAsync(Guid id, string workerId)
+        {
+            var changa = Changas.SingleOrDefault(item => item.Id == id);
+            if (changa is null)
+            {
+                return Task.FromResult(ChangaTakePersistenceResult.NotFound);
+            }
+
+            if (changa.Assignment is not null)
+            {
+                return Task.FromResult(changa.Assignment.WorkerId == workerId
+                    ? ChangaTakePersistenceResult.AlreadyAssignedToWorker
+                    : ChangaTakePersistenceResult.AlreadyAssignedToOther);
+            }
+
+            if (changa.Status != ChangaStatus.Available)
+            {
+                return Task.FromResult(ChangaTakePersistenceResult.NotAvailable);
+            }
+
+            var assignment = new ChangaAssignment
+            {
+                Id = Guid.NewGuid(),
+                ChangaId = changa.Id,
+                WorkerId = workerId,
+                AssignedAt = DateTimeOffset.UtcNow
+            };
+            changa.Assignment = assignment;
+            changa.Status = ChangaStatus.Assigned;
+            Assignments.Add(assignment);
+            return Task.FromResult(ChangaTakePersistenceResult.Assigned);
         }
     }
 

@@ -132,6 +132,42 @@ public sealed class ChangaManager(
             : new ChangaManagerResult(ChangaManagerStatus.Success, Changa: Project(changa));
     }
 
+    public async Task<ChangaManagerResult> TakeAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotFound);
+        }
+
+        if (changa.AuthorId == userId)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.SelfAssignment);
+        }
+
+        var take = await changaStore.TakeAsync(id, userId!);
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return take switch
+        {
+            ChangaTakePersistenceResult.Assigned or ChangaTakePersistenceResult.AlreadyAssignedToWorker =>
+                new ChangaManagerResult(
+                    ChangaManagerStatus.Success,
+                    Changa: Project(changa),
+                    Assignment: new ChangaAssignmentView(changa.Assignment!.Id, changa.Assignment.AssignedAt)),
+            ChangaTakePersistenceResult.AlreadyAssignedToOther =>
+                new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned),
+            ChangaTakePersistenceResult.NotAvailable =>
+                new ChangaManagerResult(ChangaManagerStatus.NotAvailable),
+            _ => new ChangaManagerResult(ChangaManagerStatus.NotFound)
+        };
+    }
+
     private async Task<ChangaManagerResult?> CheckAccessAsync(string? userId)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -164,7 +200,13 @@ public sealed class ChangaManager(
             MaterialsProvider.Worker => "worker",
             _ => null
         },
-        "available",
+        changa.Status switch
+        {
+            ChangaStatus.Available => "available",
+            ChangaStatus.Assigned => "assigned",
+            ChangaStatus.Cancelled => "cancelled",
+            _ => "available"
+        },
         "first_come",
         changa.IsSample,
         changa.CreatedAt,
@@ -288,11 +330,17 @@ public enum ChangaManagerStatus
     Invalid,
     Unauthenticated,
     Forbidden,
-    NotFound
+    NotFound,
+    SelfAssignment,
+    AlreadyAssigned,
+    NotAvailable
 }
 
 public sealed record ChangaManagerResult(
     ChangaManagerStatus Status,
     ChangaPublicView? Changa = null,
     IReadOnlyList<ChangaPublicView>? Changas = null,
-    IReadOnlyDictionary<string, string[]>? Errors = null);
+    IReadOnlyDictionary<string, string[]>? Errors = null,
+    ChangaAssignmentView? Assignment = null);
+
+public sealed record ChangaAssignmentView(Guid Id, DateTimeOffset AssignedAt);

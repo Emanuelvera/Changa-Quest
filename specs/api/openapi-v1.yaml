@@ -211,6 +211,38 @@ paths:
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/Problem"
+  /api/v1/changas/{id}/take:
+    post:
+      operationId: takeChanga
+      summary: Toma una changa disponible por orden de llegada
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: La changa quedó asignada a la persona autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaTakeResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La changa no puede tomarse; el código identifica la regla, incluido `changa_already_assigned`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 components:
   securitySchemes:
     cookieAuth:
@@ -300,7 +332,7 @@ components:
           enum: [requester, worker, null]
         status:
           type: string
-          enum: [available]
+          enum: [available, assigned, cancelled]
         assignmentMode:
           type: string
           enum: [first_come]
@@ -315,6 +347,24 @@ components:
           format: double
           minimum: 0
           description: Distancia aproximada en línea recta desde la ubicación de búsqueda.
+    ChangaTakeResponse:
+      type: object
+      required: [changa, assignment]
+      properties:
+        changa:
+          $ref: "#/components/schemas/Changa"
+        assignment:
+          $ref: "#/components/schemas/ChangaAssignment"
+    ChangaAssignment:
+      type: object
+      required: [id, assignedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        assignedAt:
+          type: string
+          format: date-time
     AccountRegistrationAccepted:
       type: object
       required: [message]

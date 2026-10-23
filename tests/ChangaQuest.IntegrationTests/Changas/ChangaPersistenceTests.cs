@@ -85,6 +85,102 @@ public class ChangaPersistenceTests
         }
     }
 
+    [Fact]
+    public async Task Taking_a_changa_persists_one_unique_assignment_and_is_idempotent()
+    {
+        var databaseName = $"ChangaQuestChangaAssignment_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                await new ChangaStore(context).AddAsync(new Changa
+                {
+                    Id = changaId,
+                    Description = "Pintar una pared interior de una habitación.",
+                    Reward = 15000,
+                    Zone = "General Paz",
+                    ExactAddress = "Dirección privada 987",
+                    MaterialsNeeded = false,
+                    AssignmentMode = AssignmentMode.FirstCome,
+                    Status = ChangaStatus.Available,
+                    AuthorId = "author-id",
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            await using (var context = new ApplicationDbContext(options))
+            {
+                var store = new ChangaStore(context);
+                Assert.Equal(ChangaTakePersistenceResult.Assigned, await store.TakeAsync(changaId, "worker-id"));
+            }
+
+            await using (var retryContext = new ApplicationDbContext(options))
+            {
+                var store = new ChangaStore(retryContext);
+                Assert.Equal(
+                    ChangaTakePersistenceResult.AlreadyAssignedToWorker,
+                    await store.TakeAsync(changaId, "worker-id"));
+                Assert.Equal(1, await retryContext.Set<ChangaAssignment>().CountAsync());
+                Assert.Equal(ChangaStatus.Assigned, await retryContext.Changas.Select(item => item.Status).SingleAsync());
+            }
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_takes_leave_one_assignment_and_one_conflict()
+    {
+        var databaseName = $"ChangaQuestConcurrentTake_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                await new ChangaStore(context).AddAsync(new Changa
+                {
+                    Id = changaId,
+                    Description = "Pintar una pared interior de una habitación.",
+                    Reward = 15000,
+                    Zone = "General Paz",
+                    ExactAddress = "Dirección privada 987",
+                    MaterialsNeeded = false,
+                    AssignmentMode = AssignmentMode.FirstCome,
+                    Status = ChangaStatus.Available,
+                    AuthorId = "author-id",
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            var first = Task.Run(async () =>
+            {
+                await using var context = new ApplicationDbContext(options);
+                return await new ChangaStore(context).TakeAsync(changaId, "worker-a");
+            });
+            var second = Task.Run(async () =>
+            {
+                await using var context = new ApplicationDbContext(options);
+                return await new ChangaStore(context).TakeAsync(changaId, "worker-b");
+            });
+
+            var results = await Task.WhenAll(first, second);
+
+            Assert.Equal(1, results.Count(result => result == ChangaTakePersistenceResult.Assigned));
+            Assert.Equal(1, results.Count(result => result == ChangaTakePersistenceResult.AlreadyAssignedToOther));
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
     private static DbContextOptions<ApplicationDbContext> CreateOptions(string databaseName) =>
         new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseSqlServer($"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Trusted_Connection=True;TrustServerCertificate=True")
