@@ -104,12 +104,46 @@ paths:
   /api/v1/changas:
     get:
       operationId: listAvailableChangas
-      summary: Lista changas disponibles para cuentas adultas verificadas
+      summary: Busca changas disponibles dentro de un radio manual
       security:
         - cookieAuth: []
+      parameters:
+        - name: latitude
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+          description: Latitud ficticia de la ubicación manual de búsqueda.
+        - name: longitude
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+          description: Longitud ficticia de la ubicación manual de búsqueda.
+        - name: radiusKm
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 3, 5, 10]
+            default: 3
+          description: Radio de búsqueda permitido en kilómetros.
+        - name: savePreference
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Guarda explícitamente la ubicación manual como preferencia.
       responses:
         "200":
-          description: Tablón de changas disponibles; nunca incluye la dirección exacta.
+          description: Tablón filtrado por distancia; nunca incluye la dirección exacta.
           content:
             application/json:
               schema:
@@ -120,6 +154,8 @@ paths:
           $ref: "#/components/responses/Problem"
         "403":
           $ref: "#/components/responses/Problem"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
     post:
       operationId: createChanga
       summary: Publica una changa como disponible
@@ -207,6 +243,18 @@ components:
           maxLength: 200
           writeOnly: true
           description: Dirección privada; nunca se devuelve en este contrato. Longitud medida sin espacios al inicio y al final.
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Coordenada ficticia opcional de demo para búsquedas por cercanía.
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Coordenada ficticia opcional de demo para búsquedas por cercanía.
         materialsNeeded:
           type: boolean
           description: Respuesta explícita sobre si hacen falta herramientas o materiales.
@@ -232,7 +280,7 @@ components:
               enum: [requester, worker]
     Changa:
       type: object
-      required: [id, description, reward, zone, materialsNeeded, materialsProvider, status, assignmentMode, isSample, createdAt]
+      required: [id, description, reward, zone, materialsNeeded, materialsProvider, status, assignmentMode, isSample, createdAt, distanceKm]
       properties:
         id:
           type: string
@@ -262,6 +310,11 @@ components:
         createdAt:
           type: string
           format: date-time
+        distanceKm:
+          type: number
+          format: double
+          minimum: 0
+          description: Distancia aproximada en línea recta desde la ubicación de búsqueda.
     AccountRegistrationAccepted:
       type: object
       required: [message]

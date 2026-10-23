@@ -19,6 +19,9 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
             .OrderByDescending(changa => changa.CreatedAt)
             .ToArrayAsync();
 
+    public Task<IReadOnlyList<Changa>> ListAvailableForSearchAsync() =>
+        ListAvailableAsync();
+
     public Task<Changa?> FindAvailableByIdAsync(Guid id) =>
         context.Changas
             .AsNoTracking()
@@ -41,4 +44,3 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         await context.SaveChangesAsync();
     }
 }
-
