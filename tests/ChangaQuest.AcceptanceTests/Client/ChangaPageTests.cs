@@ -341,6 +341,142 @@ public sealed class ChangaPageTests : Bunit.TestContext
         });
     }
 
+    private const string PendingCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"pending","otherPartyConsent":"accepted","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}""";
+    private const string MutualCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"accepted","otherPartyConsent":"accepted","hasMutualConsent":true,"otherPhone":"+54 351 555-0199","exactAddress":"Dirección ficticia 123"}""";
+    private const string TimeoutMessage = "La solicitud tardó demasiado. Intentá de nuevo.";
+
+    private static readonly Guid CoordinationId = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+
+    private IRenderedComponent<ChangaQuest.Client.Pages.Coordinacion> RenderCoordination(
+        Func<HttpRequestMessage, Task<HttpResponseMessage>> respond)
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(respond)) { BaseAddress = new Uri("http://localhost") });
+        return Render<ChangaQuest.Client.Pages.Coordinacion>(parameters => parameters.Add(component => component.Id, CoordinationId));
+    }
+
+    [Fact]
+    public void Coordination_page_shows_timeout_message_when_loading_is_cancelled()
+    {
+        var page = RenderCoordination(_ => throw new TaskCanceledException());
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains(TimeoutMessage, page.Markup);
+            Assert.Contains("Reintentar", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Coordinations_list_shows_timeout_message_when_loading_is_cancelled()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ => throw new TaskCanceledException())) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() => Assert.Contains(TimeoutMessage, page.Markup));
+    }
+
+    [Fact]
+    public void Coordination_page_shows_timeout_message_without_false_success_when_saving_is_cancelled()
+    {
+        var page = RenderCoordination(request => request.Method == HttpMethod.Get
+            ? Task.FromResult(Json(PendingCoordination))
+            : throw new TaskCanceledException());
+        page.WaitForAssertion(() => Assert.Contains("label for=\"phone\"", page.Markup));
+
+        page.Find("input#phone").Change("12345678");
+        page.Find("button.button:not(.secondary)").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains(TimeoutMessage, page.Markup);
+            Assert.DoesNotContain("Guardamos tu", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Coordination_page_treats_null_save_response_as_error_and_keeps_the_form()
+    {
+        var page = RenderCoordination(request => Task.FromResult(request.Method == HttpMethod.Get
+            ? Json(PendingCoordination)
+            : Json("null")));
+        page.WaitForAssertion(() => Assert.Contains("label for=\"phone\"", page.Markup));
+
+        page.Find("input#phone").Change("12345678");
+        page.Find("button.button:not(.secondary)").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("role=\"alert\"", page.Markup);
+            Assert.DoesNotContain("Guardamos tu", page.Markup);
+            Assert.Contains("label for=\"phone\"", page.Markup);
+            Assert.Contains("Dirección ficticia 123", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Coordination_page_uses_a_fallback_message_when_phone_errors_array_is_empty()
+    {
+        var page = RenderCoordination(request => Task.FromResult(request.Method == HttpMethod.Get
+            ? Json(PendingCoordination)
+            : Problem(HttpStatusCode.BadRequest, "Datos inválidos.", """{"phone":[]}""")));
+        page.WaitForAssertion(() => Assert.Contains("label for=\"phone\"", page.Markup));
+
+        page.Find("input#phone").Change("123");
+        page.Find("button.button:not(.secondary)").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("id=\"phone-error\"", page.Markup);
+            Assert.Contains("Ingresá un teléfono ficticio válido", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Coordination_page_sends_share_phone_true_with_the_phone_when_accepting()
+    {
+        string? submitted = null;
+        var page = RenderCoordination(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json(PendingCoordination);
+            }
+
+            submitted = await request.Content!.ReadAsStringAsync();
+            return Json(MutualCoordination);
+        });
+        page.WaitForAssertion(() => Assert.Contains("label for=\"phone\"", page.Markup));
+
+        page.Find("input#phone").Change("+54 351 555-0100");
+        page.Find("button.button:not(.secondary)").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            using var body = System.Text.Json.JsonDocument.Parse(submitted!);
+            Assert.True(body.RootElement.GetProperty("sharePhone").GetBoolean());
+            Assert.Equal("+54 351 555-0100", body.RootElement.GetProperty("phone").GetString());
+        });
+    }
+
+    [Fact]
+    public void Coordination_page_shows_the_other_phone_with_mutual_consent()
+    {
+        var page = RenderCoordination(_ => Task.FromResult(Json(MutualCoordination)));
+
+        page.WaitForAssertion(() => Assert.Contains("+54 351 555-0199", page.Markup));
+    }
+
+    [Fact]
+    public void Coordinations_list_shows_the_other_phone_with_mutual_consent()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ => Task.FromResult(Json($"[{MutualCoordination}]")))) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() => Assert.Contains("+54 351 555-0199", page.Markup));
+    }
+
     private static HttpResponseMessage Json(string content) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(content, Encoding.UTF8, "application/json")

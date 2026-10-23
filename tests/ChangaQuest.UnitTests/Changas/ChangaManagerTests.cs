@@ -197,6 +197,12 @@ public sealed class ChangaManagerTests
     [InlineData("123456789012345", true)]
     [InlineData("1234567", false)]
     [InlineData("1234567890123456", false)]
+    [InlineData("-+12345678", false)]
+    [InlineData("12345678abc", false)]
+    [InlineData("1234.5678", false)]
+    [InlineData("12345+678", false)]
+    [InlineData("+54 351 123-4567", true)]
+    [InlineData("(0351) 123 4567", true)]
     public async Task Phone_consent_accepts_only_supported_digit_lengths(string? phone, bool valid)
     {
         var changa = AvailableChanga("author-id");

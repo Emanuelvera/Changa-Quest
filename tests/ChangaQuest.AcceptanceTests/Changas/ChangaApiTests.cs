@@ -285,6 +285,40 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
     }
 
     [Fact]
+    public async Task Coordination_endpoints_without_session_return_401_and_no_private_data()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        var address = $"Dirección ficticia {Guid.NewGuid():N}";
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest(address));
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+        using var authorShared = await author.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent", new { sharePhone = true, phone = "+54 351 555-0111" });
+        using var workerShared = await worker.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent", new { sharePhone = true, phone = "351 555-0122" });
+        Assert.Equal(HttpStatusCode.OK, authorShared.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, workerShared.StatusCode);
+
+        using var anonymous = factory.CreateClient();
+        using var read = await anonymous.GetAsync($"/api/v1/changas/{id}/coordination");
+        using var write = await anonymous.PutAsJsonAsync(
+            $"/api/v1/changas/{id}/coordination/phone-consent", new { sharePhone = true, phone = "+54 351 555-0133" });
+        using var list = await anonymous.GetAsync("/api/v1/coordinations");
+
+        foreach (var response in new[] { read, write, list })
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(address, body, StringComparison.Ordinal);
+            Assert.DoesNotContain("555-01", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("otherPhone", body, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public async Task Coordination_matrix_enforces_mutual_phone_consent_and_assigned_roles()
     {
         using var author = await CreateVerifiedClientAsync();

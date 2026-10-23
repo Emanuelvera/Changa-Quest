@@ -316,22 +316,20 @@ public sealed class ChangaManager(
         }
 
         var digits = 0;
-        var plusSeen = false;
         var parentheses = 0;
-        foreach (var character in normalized)
+        for (var index = 0; index < normalized.Length; index++)
         {
+            var character = normalized[index];
             if (character is >= '0' and <= '9')
             {
                 digits++;
             }
             else if (character == '+')
             {
-                if (plusSeen || digits > 0)
+                if (index != 0)
                 {
                     return false;
                 }
-
-                plusSeen = true;
             }
             else if (character == '(')
             {

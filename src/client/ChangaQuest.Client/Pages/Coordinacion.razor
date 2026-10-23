@@ -52,6 +52,10 @@
                 <button class="button" type="button" @onclick="() => SetConsentAsync(true)" disabled="@Saving">@(Saving ? "Guardando…" : "Acepto compartir mi teléfono ficticio")</button>
                 <button class="button secondary" type="button" @onclick="() => SetConsentAsync(false)" disabled="@Saving">No compartir / revocar</button>
             </div>
+            @if (!string.IsNullOrWhiteSpace(SaveError))
+            {
+                <p class="field-error" role="alert">@SaveError</p>
+            }
             @if (!string.IsNullOrWhiteSpace(Success))
             {
                 <p class="success-message" role="status">@Success</p>
@@ -69,6 +73,7 @@
     private string Phone = string.Empty;
     private string? Error;
     private string? PhoneError;
+    private string? SaveError;
     private string? Success;
 
     private string YourConsentText => Coordination?.YourConsent switch
@@ -103,6 +108,10 @@
         {
             Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
         }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
         catch (JsonException)
         {
             Error = "No se pudo leer la respuesta. Intentá de nuevo.";
@@ -116,7 +125,7 @@
     private async Task SetConsentAsync(bool sharePhone)
     {
         Saving = true;
-        Error = null;
+        SaveError = null;
         PhoneError = null;
         Success = null;
         try
@@ -137,12 +146,19 @@
                 }
                 else
                 {
-                    Error = await ReadErrorAsync(response, "No se pudo guardar tu respuesta. Intentá de nuevo.");
+                    SaveError = await ReadErrorAsync(response, "No se pudo guardar tu respuesta. Intentá de nuevo.");
                 }
                 return;
             }
 
-            Coordination = await response.Content.ReadFromJsonAsync<CoordinationView>();
+            var updated = await response.Content.ReadFromJsonAsync<CoordinationView>();
+            if (updated is null)
+            {
+                SaveError = "No se pudo leer la respuesta. Intentá cargar la coordinación de nuevo.";
+                return;
+            }
+
+            Coordination = updated;
             Success = sharePhone
                 ? "Guardamos tu aceptación. Los teléfonos solo se muestran si la otra parte también acepta."
                 : "Guardamos tu decisión. La asignación sigue activa y los teléfonos permanecen ocultos.";
@@ -153,11 +169,15 @@
         }
         catch (HttpRequestException)
         {
-            Error = "No se pudo conectar con el servidor. No confirmamos el cambio; podés volver a intentarlo.";
+            SaveError = "No se pudo conectar con el servidor. No confirmamos el cambio; podés volver a intentarlo.";
+        }
+        catch (OperationCanceledException)
+        {
+            SaveError = "La solicitud tardó demasiado. Intentá de nuevo.";
         }
         catch (JsonException)
         {
-            Error = "No se pudo leer la respuesta. Intentá cargar la coordinación de nuevo.";
+            SaveError = "No se pudo leer la respuesta. Intentá cargar la coordinación de nuevo.";
         }
         finally
         {
@@ -172,8 +192,16 @@
             using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
             if (body.RootElement.TryGetProperty("errors", out var errors) && errors.TryGetProperty("phone", out var fieldErrors))
             {
-                return fieldErrors.EnumerateArray().FirstOrDefault().GetString()
-                    ?? "Ingresá un teléfono ficticio válido con entre 8 y 15 dígitos.";
+                if (fieldErrors.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in fieldErrors.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                        {
+                            return item.GetString()!;
+                        }
+                    }
+                }
             }
         }
         catch (JsonException)

@@ -74,6 +74,10 @@
         {
             Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
         }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
         catch (JsonException)
         {
             Error = "No se pudo leer la respuesta. Intentá de nuevo.";

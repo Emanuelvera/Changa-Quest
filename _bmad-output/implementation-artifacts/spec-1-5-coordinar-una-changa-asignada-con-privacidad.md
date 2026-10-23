@@ -2,7 +2,7 @@
 title: "Story 1.5 — Coordinar una changa asignada con privacidad"
 type: feature
 created: 2026-10-23
-status: done
+status: in-review
 route: dispatch
 review_loop_iteration: 0
 baseline_commit: c129fb85d10ca26ba659c90e4c2f6403443712fe
@@ -99,6 +99,13 @@ context:
 | 15 | Pruebas OpenAPI solo buscaban fragmentos de texto | `low` - la prueba previa no comprobaba las variantes del request ni los esquemas/status relevantes; se agregaron aserciones para ambas variantes, referencias, errores y direccion nula en listas. | `patch` |
 | 16 | Sin prueba de migracion sobre asignaciones ya existentes | `medium` - la prueba anterior migraba una base vacia; se agrego una prueba que crea una asignacion con el esquema previo, migra y confirma ambos estados `Pending` y telefonos nulos. | `patch` |
 | 17 | La respuesta del listado puede contener direccion exacta | `medium` - confirmado en la revision original: la lista reutilizaba la proyeccion de detalle. Se corrigio junto con los hallazgos 3 y 4 y se cubrio para ambos roles. | `patch` (agrupado con 3) |
+| 18 | Timeouts sin capturar en Coordinacion y Coordinaciones | `medium` - OperationCanceledException escapaba y mostraba el banner de error no controlado; se capturan y se muestra un mensaje recuperable. | `patch` |
+| 19 | `+` mal ubicado aceptado (`-+12345678`) | `low` - la validacion solo exigia que `+` precediera a los digitos; ahora solo se admite en la primera posicion. | `patch` |
+| 20 | Respuesta 200 con cuerpo null y arreglo `errors.phone` vacio | `low` - el formulario desaparecia sin mensaje o la lectura del error fallaba; se tratan como error. | `patch` |
+| 21 | Huecos de prueba: aceptar desde la UI, telefono visible con consentimiento mutuo, caracteres prohibidos, endpoints sin sesion | `medium` - sin esas pruebas una regresion no fallaba; se agregaron 15 pruebas. | `patch` |
+| 22 | Numeros reales aceptados aunque se describan como ficticios | `low` - no es verificable sin un catalogo de numeros de demo; la UI advierte que debe ser ficticio y OQ-4 bloquea el uso real. | Rechazado (alcance de demo) |
+| 23 | `NotAssigned` antes de comprobar la participacion | `low` - solo revela si una changa ya publicada esta asignada; el estado ya es publico en el listado. La matriz de la spec fija `409`. | Rechazado |
+| 24 | Escritura sin asignacion entre lectura y guardado | `false` - no existe un flujo de producto que elimine una asignacion. | Rechazado |
 
 ## Design Notes
 
