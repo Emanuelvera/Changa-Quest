@@ -10,6 +10,34 @@
         <p class="intro">Consultá changas disponibles y sus datos principales antes de comprometerte. La dirección exacta se mantiene privada.</p>
     </header>
 
+    <section class="account-card search-panel" aria-labelledby="search-heading">
+        <h2 id="search-heading">Buscar por cercanía</h2>
+        <div class="field">
+            <label for="radius">Radio de búsqueda</label>
+            <select id="radius" @bind="RadiusKm" @bind:after="LoadAsync">
+                @foreach (var radius in SupportedRadii)
+                {
+                    <option value="@radius">@radius km</option>
+                }
+            </select>
+        </div>
+        <div class="search-grid">
+            <div class="field">
+                <label for="latitude">Latitud de referencia</label>
+                <input id="latitude" type="number" step="0.0001" @bind="Latitude" />
+            </div>
+            <div class="field">
+                <label for="longitude">Longitud de referencia</label>
+                <input id="longitude" type="number" step="0.0001" @bind="Longitude" />
+            </div>
+        </div>
+        <label class="checkbox-field" for="save-preference">
+            <input id="save-preference" type="checkbox" @bind="SavePreference" />
+            <span>Guardar esta ubicación como preferencia</span>
+        </label>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Actualizar búsqueda</button>
+    </section>
+
     @if (Loading)
     {
         <p class="status" role="status">Cargando changas…</p>
@@ -42,6 +70,7 @@
                     <dl class="changa-details">
                         <div><dt>Recompensa</dt><dd>@changa.Reward.ToString("N0") ARS</dd></div>
                         <div><dt>Zona aproximada</dt><dd>@changa.Zone</dd></div>
+                        <div><dt>Distancia aproximada</dt><dd>@changa.DistanceKm.ToString("0.0") km</dd></div>
                         <div>
                             <dt>Materiales</dt>
                             <dd>@(changa.MaterialsNeeded ? MaterialsText(changa.MaterialsProvider) : "No hacen falta materiales")</dd>
@@ -60,6 +89,13 @@
     private bool Loading = true;
     private bool SignedIn;
     private string? Error;
+    private const double DefaultLatitude = -31.4167;
+    private const double DefaultLongitude = -64.1833;
+    private static readonly int[] SupportedRadii = [1, 3, 5, 10];
+    private int RadiusKm { get; set; } = 3;
+    private double Latitude { get; set; } = DefaultLatitude;
+    private double Longitude { get; set; } = DefaultLongitude;
+    private bool SavePreference;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -78,7 +114,10 @@
             }
 
             SignedIn = true;
-            using var response = await Http.GetAsync("/api/v1/changas");
+            var query = $"/api/v1/changas?latitude={Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
+                        $"&longitude={Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
+                        $"&radiusKm={RadiusKm}&savePreference={SavePreference.ToString().ToLowerInvariant()}";
+            using var response = await Http.GetAsync(query);
             if (!response.IsSuccessStatusCode)
             {
                 Error = "No se pudieron cargar las changas. Intentá de nuevo.";
@@ -124,5 +163,6 @@
         string Status,
         string AssignmentMode,
         bool IsSample,
-        DateTimeOffset CreatedAt);
+        DateTimeOffset CreatedAt,
+        double DistanceKm);
 }

@@ -133,8 +133,8 @@ public sealed class ChangaManagerTests
         Id = Guid.NewGuid(),
         Description = "Descripción válida para una changa.",
         Reward = 10000,
-        Zone = "Nueva Córdoba",
-        ExactAddress = "Dirección privada 123",
+        Zone = "Nueva C?rdoba",
+        ExactAddress = "Direcci?n privada 123",
         MaterialsNeeded = false,
         AssignmentMode = AssignmentMode.FirstCome,
         Status = ChangaStatus.Available,
@@ -142,6 +142,91 @@ public sealed class ChangaManagerTests
         CreatedAt = DateTimeOffset.UtcNow
     };
 
+    public async Task Search_uses_three_kilometres_by_default_and_excludes_items_outside_radius()
+    {
+        var store = new FakeChangaStore
+        {
+            Changas =
+            [
+                SampleChanga(Guid.NewGuid(), -31.4167, -64.1833),
+                SampleChanga(Guid.NewGuid(), -31.4620, -64.1500)
+            ]
+        };
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.SearchAvailableAsync(
+            "account-id",
+            new ChangaSearchQuery(-31.4167, -64.1833, 3, false));
+
+        var item = Assert.Single(result.Changas!);
+        Assert.Equal(0, item.DistanceKm);
+        Assert.DoesNotContain(result.Changas!, changa => changa.Id == store.Changas[1].Id);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(5)]
+    [InlineData(10)]
+    public async Task Search_accepts_only_supported_radii(int radiusKm)
+    {
+        var store = new FakeChangaStore
+        {
+            Changas = [SampleChanga(Guid.NewGuid(), -31.4167, -64.1833)]
+        };
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.SearchAvailableAsync(
+            "account-id",
+            new ChangaSearchQuery(-31.4167, -64.1833, radiusKm, false));
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+    }
+
+    [Fact]
+    public async Task Search_rejects_an_unsupported_radius()
+    {
+        var manager = new ChangaManager(
+            new FakeChangaStore(),
+            new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.SearchAvailableAsync(
+            "account-id",
+            new ChangaSearchQuery(-31.4167, -64.1833, 2, false));
+
+        Assert.Equal(ChangaManagerStatus.Invalid, result.Status);
+        Assert.Contains("radiusKm", result.Errors!.Keys);
+    }
+
+    [Fact]
+    public async Task Search_saves_manual_location_only_when_requested()
+    {
+        var accountStore = new FakeAccountStore(emailConfirmed: true, declaredAdult: true);
+        var manager = new ChangaManager(new FakeChangaStore(), accountStore);
+
+        await manager.SearchAvailableAsync(
+            "account-id",
+            new ChangaSearchQuery(-31.42, -64.18, 3, true));
+
+        Assert.Equal(-31.42, accountStore.User.SearchLatitude);
+        Assert.Equal(-64.18, accountStore.User.SearchLongitude);
+        Assert.True(accountStore.PreferenceSaved);
+    }
+
+    private static Changa SampleChanga(Guid id, double latitude, double longitude) => new()
+    {
+        Id = id,
+        Description = "Descripción válida para muestra.",
+        Reward = 1000,
+        Zone = "Nueva C?rdoba",
+        ExactAddress = "Direcci?n privada 123",
+        MaterialsNeeded = false,
+        AssignmentMode = AssignmentMode.FirstCome,
+        Status = ChangaStatus.Available,
+        Latitude = latitude,
+        Longitude = longitude,
+        CreatedAt = DateTimeOffset.UtcNow
+    };
     private static ChangaCreateCommand ValidCommand() => new(
         "Descripción válida para una changa.",
         10000,
@@ -153,7 +238,7 @@ public sealed class ChangaManagerTests
 
     private sealed class FakeChangaStore : IChangaStore
     {
-        public List<Changa> Changas { get; } = [];
+        public List<Changa> Changas { get; set; } = [];
         public List<ChangaAssignment> Assignments { get; } = [];
 
         public FakeChangaStore(params Changa[] changas) => Changas.AddRange(changas);
@@ -166,6 +251,8 @@ public sealed class ChangaManagerTests
 
         public Task<IReadOnlyList<Changa>> ListAvailableAsync() =>
             Task.FromResult<IReadOnlyList<Changa>>(Changas.Where(item => item.Status == ChangaStatus.Available).ToArray());
+
+        public Task<IReadOnlyList<Changa>> ListAvailableForSearchAsync() => ListAvailableAsync();
 
         public Task<Changa?> FindAvailableByIdAsync(Guid id) =>
             Task.FromResult(Changas.SingleOrDefault(item => item.Id == id && item.Status == ChangaStatus.Available));
@@ -215,12 +302,13 @@ public sealed class ChangaManagerTests
 
     private sealed class FakeAccountStore(bool emailConfirmed, bool declaredAdult) : IAccountIdentityStore
     {
-        private readonly AppUser _user = new()
+        public AppUser User { get; } = new()
         {
             Id = "account-id",
             EmailConfirmed = emailConfirmed,
             DeclaredAdult = declaredAdult
         };
+        public bool PreferenceSaved { get; private set; }
 
         public Task<AccountCreationResult> CreateAdultAsync(string email, string password) =>
             Task.FromResult(new AccountCreationResult(false));
@@ -232,6 +320,12 @@ public sealed class ChangaManagerTests
 
         public Task SignOutAsync() => Task.CompletedTask;
 
-        public Task<AppUser?> FindByIdAsync(string userId) => Task.FromResult<AppUser?>(_user);
+        public Task<AppUser?> FindByIdAsync(string userId) => Task.FromResult<AppUser?>(User);
+
+        public Task SaveSearchPreferenceAsync(AppUser user)
+        {
+            PreferenceSaved = true;
+            return Task.CompletedTask;
+        }
     }
 }

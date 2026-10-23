@@ -36,6 +36,8 @@ public sealed class ChangaManager(
             Reward = command.Reward!.Value,
             Zone = command.Zone!.Trim(),
             ExactAddress = command.ExactAddress!.Trim(),
+            Latitude = command.Latitude ?? ChangaPolicy.DefaultSearchLatitude,
+            Longitude = command.Longitude ?? ChangaPolicy.DefaultSearchLongitude,
             MaterialsNeeded = command.MaterialsNeeded!.Value,
             MaterialsProvider = ParseMaterialsProvider(command.MaterialsProvider),
             AssignmentMode = AssignmentMode.FirstCome,
@@ -59,7 +61,61 @@ public sealed class ChangaManager(
         var changas = await changaStore.ListAvailableAsync();
         return new ChangaManagerResult(
             ChangaManagerStatus.Success,
-            Changas: changas.Select(Project).ToArray());
+            Changas: changas.Select(changa => Project(changa)).ToArray());
+    }
+
+    public async Task<ChangaManagerResult> SearchAvailableAsync(string? userId, ChangaSearchQuery query)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var radius = query.RadiusKm ?? 3;
+        if (radius is not (1 or 3 or 5 or 10))
+        {
+            return new ChangaManagerResult(
+                ChangaManagerStatus.Invalid,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["radiusKm"] = ["El radio debe ser de 1, 3, 5 o 10 km."]
+                });
+        }
+
+        var user = await accountStore.FindByIdAsync(userId!);
+        var latitude = query.Latitude ?? user?.SearchLatitude ?? ChangaPolicy.DefaultSearchLatitude;
+        var longitude = query.Longitude ?? user?.SearchLongitude ?? ChangaPolicy.DefaultSearchLongitude;
+        if (!IsValidCoordinate(latitude, longitude))
+        {
+            return new ChangaManagerResult(
+                ChangaManagerStatus.Invalid,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["location"] = ["Ingresá una ubicación manual válida."]
+                });
+        }
+
+        if (query.SavePreference)
+        {
+            user!.SearchLatitude = latitude;
+            user.SearchLongitude = longitude;
+            await accountStore.SaveSearchPreferenceAsync(user);
+        }
+
+        var changas = await changaStore.ListAvailableForSearchAsync();
+        return new ChangaManagerResult(
+            ChangaManagerStatus.Success,
+            Changas: changas
+                .Select(changa => (Changa: changa, DistanceKm: DistanceInKm(
+                    latitude,
+                    longitude,
+                    changa.Latitude,
+                    changa.Longitude)))
+                .Where(item => item.DistanceKm <= radius)
+                .OrderBy(item => item.DistanceKm)
+                .Select(item => Project(item.Changa, item.DistanceKm))
+                .ToArray());
     }
 
     public async Task<ChangaManagerResult> FindAvailableAsync(string? userId, Guid id)
@@ -132,7 +188,7 @@ public sealed class ChangaManager(
         _ => null
     };
 
-    private static ChangaPublicView Project(Changa changa) => new(
+    private static ChangaPublicView Project(Changa changa, double distanceKm = 0) => new(
         changa.Id,
         changa.Description,
         changa.Reward,
@@ -153,7 +209,26 @@ public sealed class ChangaManager(
         },
         "first_come",
         changa.IsSample,
-        changa.CreatedAt);
+        changa.CreatedAt,
+        Math.Round(distanceKm, 1));
+
+    private static bool IsValidCoordinate(double latitude, double longitude) =>
+        latitude is >= -90 and <= 90 &&
+        longitude is >= -180 and <= 180;
+
+    private static double DistanceInKm(double latitude1, double longitude1, double latitude2, double longitude2)
+    {
+        const double earthRadiusKm = 6371;
+        var latitudeDelta = DegreesToRadians(latitude2 - latitude1);
+        var longitudeDelta = DegreesToRadians(longitude2 - longitude1);
+        var haversine = Math.Pow(Math.Sin(latitudeDelta / 2), 2) +
+                        Math.Cos(DegreesToRadians(latitude1)) *
+                        Math.Cos(DegreesToRadians(latitude2)) *
+                        Math.Pow(Math.Sin(longitudeDelta / 2), 2);
+        return earthRadiusKm * 2 * Math.Atan2(Math.Sqrt(haversine), Math.Sqrt(1 - haversine));
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180;
 }
 
 public static class ChangaRegistrationValidator
@@ -222,7 +297,15 @@ public sealed record ChangaCreateCommand(
     string? ExactAddress,
     bool? MaterialsNeeded,
     string? MaterialsProvider,
-    bool HasMaterialsProvider);
+    bool HasMaterialsProvider,
+    double? Latitude = null,
+    double? Longitude = null);
+
+public sealed record ChangaSearchQuery(
+    double? Latitude,
+    double? Longitude,
+    int? RadiusKm,
+    bool SavePreference);
 
 public sealed record ChangaValidationResult(
     bool IsValid,
@@ -238,7 +321,8 @@ public sealed record ChangaPublicView(
     string Status,
     string AssignmentMode,
     bool IsSample,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    double DistanceKm);
 
 public enum ChangaManagerStatus
 {

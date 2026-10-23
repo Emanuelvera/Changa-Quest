@@ -67,6 +67,14 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("bit");
 
+                    b.Property<double?>("SearchLatitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("float(9)");
+
+                    b.Property<double?>("SearchLongitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("float(9)");
+
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("nvarchar(max)");
 
@@ -121,6 +129,14 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
 
                     b.Property<bool>("IsSample")
                         .HasColumnType("bit");
+
+                    b.Property<double>("Latitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("float(9)");
+
+                    b.Property<double>("Longitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("float(9)");
 
                     b.Property<bool>("MaterialsNeeded")
                         .HasColumnType("bit");
