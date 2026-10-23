@@ -181,6 +181,93 @@ public class ChangaPersistenceTests
         }
     }
 
+    [Fact]
+    public async Task Add_coordination_consent_migration_persists_each_party_decision_and_discards_declined_phone()
+    {
+        var databaseName = $"ChangaQuestConsent_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                var store = new ChangaStore(context);
+                await store.AddAsync(new Changa
+                {
+                    Id = changaId,
+                    Description = "Coordinar una changa con consentimiento explícito.",
+                    Reward = 12000,
+                    Zone = "Centro",
+                    ExactAddress = "Dirección ficticia 123",
+                    MaterialsNeeded = false,
+                    AssignmentMode = AssignmentMode.FirstCome,
+                    Status = ChangaStatus.Available,
+                    AuthorId = "requester-id",
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                Assert.Equal(ChangaTakePersistenceResult.Assigned, await store.TakeAsync(changaId, "worker-id"));
+                await store.SetPhoneConsentAsync(changaId, true, PhoneConsentStatus.Accepted, "+54 351 12345678");
+                await store.SetPhoneConsentAsync(changaId, false, PhoneConsentStatus.Declined, null);
+            }
+
+            await using var readContext = new ApplicationDbContext(options);
+            var assignment = await readContext.Set<ChangaAssignment>().SingleAsync();
+            Assert.Equal(PhoneConsentStatus.Accepted, assignment.RequesterPhoneConsent);
+            Assert.Equal("+54 351 12345678", assignment.RequesterPhone);
+            Assert.Equal(PhoneConsentStatus.Declined, assignment.WorkerPhoneConsent);
+            Assert.Null(assignment.WorkerPhone);
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
+    public async Task Add_coordination_consent_migration_defaults_existing_assignments_to_pending()
+    {
+        var databaseName = $"ChangaQuestConsentUpgrade_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        var assignmentId = Guid.NewGuid();
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync("20261022232936_AddChangaAssignments");
+                context.Changas.Add(new Changa
+                {
+                    Id = changaId,
+                    Description = "Ayudar a organizar libros en una biblioteca pequeña.",
+                    Reward = 12000,
+                    Zone = "Centro",
+                    ExactAddress = "Dirección ficticia 123",
+                    MaterialsNeeded = false,
+                    AssignmentMode = AssignmentMode.FirstCome,
+                    Status = ChangaStatus.Assigned,
+                    AuthorId = "requester-id",
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                await context.SaveChangesAsync();
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $"INSERT INTO [ChangaAssignment] ([Id], [ChangaId], [WorkerId], [AssignedAt]) VALUES ({assignmentId}, {changaId}, {"worker-id"}, {DateTimeOffset.UtcNow})");
+
+                await context.Database.MigrateAsync();
+                context.ChangeTracker.Clear();
+                var assignment = await context.Set<ChangaAssignment>().SingleAsync(item => item.Id == assignmentId);
+                Assert.Equal(PhoneConsentStatus.Pending, assignment.RequesterPhoneConsent);
+                Assert.Null(assignment.RequesterPhone);
+                Assert.Equal(PhoneConsentStatus.Pending, assignment.WorkerPhoneConsent);
+                Assert.Null(assignment.WorkerPhone);
+            }
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
     private static DbContextOptions<ApplicationDbContext> CreateOptions(string databaseName) =>
         new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseSqlServer($"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Trusted_Connection=True;TrustServerCertificate=True")

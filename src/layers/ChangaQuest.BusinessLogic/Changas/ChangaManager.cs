@@ -168,6 +168,191 @@ public sealed class ChangaManager(
         };
     }
 
+    public async Task<ChangaManagerResult> GetCoordinationAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotFound);
+        }
+
+        if (changa.Assignment is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotAssigned);
+        }
+
+        var role = GetCoordinationRole(changa, userId!);
+        return role is null
+            ? new ChangaManagerResult(ChangaManagerStatus.CoordinationForbidden)
+            : new ChangaManagerResult(
+                ChangaManagerStatus.Success,
+                Coordination: ProjectCoordination(changa, role.Value));
+    }
+
+    public async Task<ChangaManagerResult> SetPhoneConsentAsync(
+        string? userId,
+        Guid id,
+        bool sharePhone,
+        string? phone)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotFound);
+        }
+
+        if (changa.Assignment is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotAssigned);
+        }
+
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.CoordinationForbidden);
+        }
+
+        if (sharePhone && !IsValidPhone(phone))
+        {
+            return new ChangaManagerResult(
+                ChangaManagerStatus.InvalidPhone,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["phone"] = ["Ingresá un teléfono ficticio válido con entre 8 y 15 dígitos."]
+                });
+        }
+
+        await changaStore.SetPhoneConsentAsync(
+            id,
+            role == ChangaCoordinationRole.Requester,
+            sharePhone ? PhoneConsentStatus.Accepted : PhoneConsentStatus.Declined,
+            sharePhone ? phone!.Trim() : null);
+
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return new ChangaManagerResult(
+            ChangaManagerStatus.Success,
+            Coordination: ProjectCoordination(changa, role.Value));
+    }
+
+    public async Task<ChangaManagerResult> ListCoordinationsAsync(string? userId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var assignments = await changaStore.ListAssignmentsForAccountAsync(userId!);
+        var coordinations = assignments
+            .Select(assignment =>
+            {
+                var changa = assignment.Changa;
+                var role = GetCoordinationRole(changa, userId!);
+                return role is null ? null : ProjectCoordination(changa, role.Value) with { ExactAddress = null };
+            })
+            .Where(item => item is not null)
+            .Cast<ChangaCoordinationView>()
+            .ToArray();
+        return new ChangaManagerResult(ChangaManagerStatus.Success, Coordinations: coordinations);
+    }
+
+    private static ChangaCoordinationRole? GetCoordinationRole(Changa changa, string userId)
+    {
+        if (changa.AuthorId == userId)
+        {
+            return ChangaCoordinationRole.Requester;
+        }
+
+        return changa.Assignment?.WorkerId == userId
+            ? ChangaCoordinationRole.Worker
+            : null;
+    }
+
+    private static ChangaCoordinationView ProjectCoordination(Changa changa, ChangaCoordinationRole role)
+    {
+        var assignment = changa.Assignment!;
+        var requester = role == ChangaCoordinationRole.Requester;
+        var mutualConsent = assignment.RequesterPhoneConsent == PhoneConsentStatus.Accepted &&
+                            assignment.WorkerPhoneConsent == PhoneConsentStatus.Accepted;
+        var ownConsent = requester ? assignment.RequesterPhoneConsent : assignment.WorkerPhoneConsent;
+        var otherConsent = requester ? assignment.WorkerPhoneConsent : assignment.RequesterPhoneConsent;
+        var otherPhone = mutualConsent
+            ? requester ? assignment.WorkerPhone : assignment.RequesterPhone
+            : null;
+        return new ChangaCoordinationView(
+            changa.Id,
+            changa.Description,
+            requester ? "requester" : "worker",
+            ownConsent switch
+            {
+                PhoneConsentStatus.Accepted => "accepted",
+                PhoneConsentStatus.Declined => "declined",
+                _ => "pending"
+            },
+            otherConsent == PhoneConsentStatus.Accepted ? "accepted" : "not_shared",
+            mutualConsent,
+            otherPhone,
+            requester ? null : changa.ExactAddress);
+    }
+
+    private static bool IsValidPhone(string? phone)
+    {
+        var normalized = phone?.Trim();
+        if (string.IsNullOrEmpty(normalized) || normalized.Length > ChangaPolicy.MaximumPhoneLength)
+        {
+            return false;
+        }
+
+        var digits = 0;
+        var parentheses = 0;
+        for (var index = 0; index < normalized.Length; index++)
+        {
+            var character = normalized[index];
+            if (character is >= '0' and <= '9')
+            {
+                digits++;
+            }
+            else if (character == '+')
+            {
+                if (index != 0)
+                {
+                    return false;
+                }
+            }
+            else if (character == '(')
+            {
+                parentheses++;
+            }
+            else if (character == ')')
+            {
+                if (parentheses == 0)
+                {
+                    return false;
+                }
+
+                parentheses--;
+            }
+            else if (!char.IsWhiteSpace(character) && character != '-')
+            {
+                return false;
+            }
+        }
+
+        return digits is >= ChangaPolicy.MinimumPhoneDigits and <= ChangaPolicy.MaximumPhoneDigits && parentheses == 0;
+    }
+
     private async Task<ChangaManagerResult?> CheckAccessAsync(string? userId)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -333,7 +518,16 @@ public enum ChangaManagerStatus
     NotFound,
     SelfAssignment,
     AlreadyAssigned,
-    NotAvailable
+    NotAvailable,
+    CoordinationForbidden,
+    NotAssigned,
+    InvalidPhone
+}
+
+public enum ChangaCoordinationRole
+{
+    Requester,
+    Worker
 }
 
 public sealed record ChangaManagerResult(
@@ -341,6 +535,18 @@ public sealed record ChangaManagerResult(
     ChangaPublicView? Changa = null,
     IReadOnlyList<ChangaPublicView>? Changas = null,
     IReadOnlyDictionary<string, string[]>? Errors = null,
-    ChangaAssignmentView? Assignment = null);
+    ChangaAssignmentView? Assignment = null,
+    ChangaCoordinationView? Coordination = null,
+    IReadOnlyList<ChangaCoordinationView>? Coordinations = null);
 
 public sealed record ChangaAssignmentView(Guid Id, DateTimeOffset AssignedAt);
+
+public sealed record ChangaCoordinationView(
+    Guid ChangaId,
+    string Description,
+    string Role,
+    string YourConsent,
+    string OtherPartyConsent,
+    bool HasMutualConsent,
+    string? OtherPhone,
+    string? ExactAddress);

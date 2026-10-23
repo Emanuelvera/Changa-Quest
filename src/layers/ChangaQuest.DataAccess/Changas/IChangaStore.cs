@@ -10,6 +10,8 @@ public interface IChangaStore
     Task<Changa?> FindAvailableByIdAsync(Guid id);
     Task<Changa?> FindByIdAsync(Guid id);
     Task<ChangaTakePersistenceResult> TakeAsync(Guid id, string workerId);
+    Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
+    Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
 }
 

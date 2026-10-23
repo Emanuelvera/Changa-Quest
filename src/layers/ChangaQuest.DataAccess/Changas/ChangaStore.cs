@@ -75,6 +75,38 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         return ChangaTakePersistenceResult.Assigned;
     }
 
+    public async Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone)
+    {
+        var changa = await context.Changas
+            .Include(item => item.Assignment)
+            .SingleOrDefaultAsync(item => item.Id == id);
+        if (changa?.Assignment is null)
+        {
+            return;
+        }
+
+        if (isAuthor)
+        {
+            changa.Assignment.RequesterPhoneConsent = status;
+            changa.Assignment.RequesterPhone = phone;
+        }
+        else
+        {
+            changa.Assignment.WorkerPhoneConsent = status;
+            changa.Assignment.WorkerPhone = phone;
+        }
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId) =>
+        await context.Set<ChangaAssignment>()
+            .AsNoTracking()
+            .Include(assignment => assignment.Changa)
+            .Where(assignment => assignment.WorkerId == userId || assignment.Changa.AuthorId == userId)
+            .OrderByDescending(assignment => assignment.AssignedAt)
+            .ToArrayAsync();
+
     public async Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples)
     {
         var ids = samples.Select(sample => sample.Id).ToArray();

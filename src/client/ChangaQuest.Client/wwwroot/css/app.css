@@ -317,3 +317,14 @@ footer {
     font-weight: 750;
     text-decoration: none;
 }
+
+.coordination-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-top: 1rem;
+}
+
+.coordination-actions .button {
+    min-height: 2.9rem;
+}
