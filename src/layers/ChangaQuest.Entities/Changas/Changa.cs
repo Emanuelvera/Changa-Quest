@@ -4,6 +4,7 @@ public sealed class Changa
 {
     public Guid Id { get; set; }
     public string Description { get; set; } = string.Empty;
+    public string CategoryId { get; set; } = string.Empty;
     public int Reward { get; set; }
     public string Zone { get; set; } = string.Empty;
     public string ExactAddress { get; set; } = string.Empty;
@@ -13,6 +14,7 @@ public sealed class Changa
     public MaterialsProvider? MaterialsProvider { get; set; }
     public AssignmentMode AssignmentMode { get; set; }
     public ChangaStatus Status { get; set; }
+    public string? ReviewReason { get; set; }
     public string? AuthorId { get; set; }
     public bool IsSample { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
@@ -23,7 +25,29 @@ public enum ChangaStatus
 {
     Available,
     Assigned,
-    Cancelled
+    Cancelled,
+    PendingReview,
+    Rejected
+}
+
+public sealed class ChangaCategory
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public bool IsApproved { get; set; }
+}
+
+public static class ChangaCategoryCatalog
+{
+    public static IReadOnlyList<ChangaCategory> Approved { get; } =
+    [
+        new() { Id = "limpieza-domestica", Name = "Limpieza doméstica", IsApproved = true },
+        new() { Id = "cocina-preparacion-basica", Name = "Cocina o preparación básica", IsApproved = true },
+        new() { Id = "compras-mandados", Name = "Compras y mandados", IsApproved = true },
+        new() { Id = "jardineria-basica", Name = "Jardinería básica", IsApproved = true },
+        new() { Id = "organizacion-hogar", Name = "Organización del hogar", IsApproved = true },
+        new() { Id = "cuidado-mascotas", Name = "Cuidado de mascotas", IsApproved = true }
+    ];
 }
 
 public enum AssignmentMode

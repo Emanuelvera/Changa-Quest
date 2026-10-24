@@ -25,6 +25,7 @@ internal sealed class ChangaDevelopmentSampleSeeder(
         {
             Id = Guid.Parse("a1000000-0000-4000-8000-000000000001"),
             Description = "Ejemplo ficticio: ordenar libros y armar una biblioteca pequeña.",
+            CategoryId = "organizacion-hogar",
             Reward = 12000,
             Zone = "Nueva Córdoba",
             ExactAddress = "Dirección ficticia de ejemplo 101",
@@ -40,6 +41,7 @@ internal sealed class ChangaDevelopmentSampleSeeder(
         {
             Id = Guid.Parse("a1000000-0000-4000-8000-000000000002"),
             Description = "Ejemplo ficticio: ayudar a mover cajas livianas dentro de una vivienda.",
+            CategoryId = "organizacion-hogar",
             Reward = 18000,
             Zone = "General Paz",
             ExactAddress = "Dirección ficticia de ejemplo 202",

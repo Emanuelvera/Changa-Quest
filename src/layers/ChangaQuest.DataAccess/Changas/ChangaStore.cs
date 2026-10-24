@@ -13,10 +13,26 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         await context.SaveChangesAsync();
     }
 
+    public async Task<IReadOnlyList<ChangaCategory>> ListApprovedCategoriesAsync() =>
+        await context.ChangaCategories
+            .AsNoTracking()
+            .Where(category => category.IsApproved)
+            .OrderBy(category => category.Name)
+            .ToArrayAsync();
+
+    public Task<ChangaCategory?> FindCategoryAsync(string id) =>
+        context.ChangaCategories
+            .AsNoTracking()
+            .SingleOrDefaultAsync(category => category.Id == id && category.IsApproved);
+
+    public Task SaveAsync(Changa changa) => context.SaveChangesAsync();
+
     public async Task<IReadOnlyList<Changa>> ListAvailableAsync() =>
         await context.Changas
             .AsNoTracking()
-            .Where(changa => changa.Status == ChangaStatus.Available)
+            .Where(changa => changa.Status == ChangaStatus.Available &&
+                context.ChangaCategories.Any(category =>
+                    category.Id == changa.CategoryId && category.IsApproved))
             .OrderByDescending(changa => changa.CreatedAt)
             .ToArrayAsync();
 
@@ -26,7 +42,11 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
     public Task<Changa?> FindAvailableByIdAsync(Guid id) =>
         context.Changas
             .AsNoTracking()
-            .SingleOrDefaultAsync(changa => changa.Id == id && changa.Status == ChangaStatus.Available);
+            .SingleOrDefaultAsync(changa =>
+                changa.Id == id &&
+                changa.Status == ChangaStatus.Available &&
+                context.ChangaCategories.Any(category =>
+                    category.Id == changa.CategoryId && category.IsApproved));
 
     public Task<Changa?> FindByIdAsync(Guid id) =>
         context.Changas

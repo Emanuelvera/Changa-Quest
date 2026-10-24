@@ -21,6 +21,64 @@ public class ChangaPersistenceTests
 
             Assert.NotNull(tableId);
         }
+
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
+    public async Task Migration_persists_approved_categories_and_excludes_pending_changas()
+    {
+        var databaseName = $"ChangaQuestCategoryData_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var pendingId = Guid.NewGuid();
+        var revokedCategoryId = Guid.NewGuid();
+        try
+        {
+            await using var context = new ApplicationDbContext(options);
+            await context.Database.MigrateAsync();
+            var store = new ChangaStore(context);
+            var categories = await store.ListApprovedCategoriesAsync();
+
+            await store.AddAsync(new Changa
+            {
+                Id = pendingId,
+                Description = "Descripción pendiente para una changa.",
+                CategoryId = categories.Single().Id,
+                Reward = 5000,
+                Zone = "Centro",
+                ExactAddress = "Dirección privada 123",
+                MaterialsNeeded = false,
+                AssignmentMode = AssignmentMode.FirstCome,
+                Status = ChangaStatus.PendingReview,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+
+            Assert.Equal(6, categories.Count);
+            Assert.DoesNotContain(await store.ListAvailableAsync(), changa => changa.Id == pendingId);
+
+            await store.AddAsync(new Changa
+            {
+                Id = revokedCategoryId,
+                Description = "Descripción para una categoría revocada.",
+                CategoryId = categories.Single().Id,
+                Reward = 5000,
+                Zone = "Centro",
+                ExactAddress = "Dirección privada 456",
+                MaterialsNeeded = false,
+                AssignmentMode = AssignmentMode.FirstCome,
+                Status = ChangaStatus.Available,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+            var category = await context.ChangaCategories.SingleAsync(item => item.Id == categories.Single().Id);
+            category.IsApproved = false;
+            await context.SaveChangesAsync();
+
+            Assert.DoesNotContain(await store.ListAvailableAsync(), changa => changa.Id == revokedCategoryId);
+            Assert.Null(await store.FindAvailableByIdAsync(revokedCategoryId));
+        }
         finally
         {
             await DeleteDatabaseAsync(options);
@@ -44,6 +102,7 @@ public class ChangaPersistenceTests
                 {
                     Id = sampleId,
                     Description = "Ejemplo ficticio: organizar libros.",
+                    CategoryId = "organizacion-hogar",
                     Reward = 5000,
                     Zone = "Centro",
                     ExactAddress = "Dirección ficticia 123",
@@ -59,6 +118,7 @@ public class ChangaPersistenceTests
                 {
                     Id = changaId,
                     Description = "Pintar una pared interior de una habitación.",
+                    CategoryId = "organizacion-hogar",
                     Reward = 15000,
                     Zone = "General Paz",
                     ExactAddress = "Dirección privada 987",

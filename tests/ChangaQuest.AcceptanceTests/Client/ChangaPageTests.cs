@@ -35,6 +35,11 @@ public sealed class ChangaPageTests : Bunit.TestContext
                 return Json("""{"email":"persona@example.test"}""");
             }
 
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/categories")
+            {
+                return Json("""[{"id":"limpieza-domestica","name":"Limpieza doméstica"}]""");
+            }
+
             if (request.RequestUri?.AbsolutePath == "/api/v1/changas" && request.Method == HttpMethod.Post)
             {
                 submittedBody = await request.Content!.ReadAsStringAsync();
@@ -50,6 +55,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var app = Render<App>();
         app.WaitForAssertion(() => Assert.Contains("Publicar changa", app.Markup));
+        app.Find("#category").Change("limpieza-domestica");
         app.Find("#description").Change("Ayuda para armar una biblioteca.");
         app.Find("#reward").Change("15000");
         app.Find("#zone").Change("Nueva Córdoba");
@@ -82,6 +88,11 @@ public sealed class ChangaPageTests : Bunit.TestContext
                 return Task.FromResult(Json("""{"email":"persona@example.test"}"""));
             }
 
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/categories")
+            {
+                return Task.FromResult(Json("""[{"id":"limpieza-domestica","name":"Limpieza doméstica"}]"""));
+            }
+
             if (request.RequestUri?.AbsolutePath == "/api/v1/changas" && request.Method == HttpMethod.Post)
             {
                 throw new HttpRequestException("Servidor no disponible.");
@@ -94,6 +105,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var app = Render<App>();
         app.WaitForAssertion(() => Assert.Contains("Publicar changa", app.Markup));
+        app.Find("#category").Change("limpieza-domestica");
         app.Find("#description").Change("Ayuda para armar una biblioteca.");
         app.Find("#reward").Change("15000");
         app.Find("#zone").Change("Nueva Cordoba");
@@ -120,6 +132,11 @@ public sealed class ChangaPageTests : Bunit.TestContext
                 return Json("""{"email":"persona@example.test"}""");
             }
 
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/categories")
+            {
+                return Json("""[{"id":"limpieza-domestica","name":"Limpieza doméstica"}]""");
+            }
+
             if (request.RequestUri?.AbsolutePath == "/api/v1/changas" && request.Method == HttpMethod.Post)
             {
                 submittedBody = await request.Content!.ReadAsStringAsync();
@@ -136,6 +153,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var app = Render<App>();
         app.WaitForAssertion(() => Assert.Contains("Publicar changa", app.Markup));
+        app.Find("#category").Change("limpieza-domestica");
         app.Find("#description").Change("Ayuda para armar una biblioteca.");
         app.Find("#reward").Change("15000");
         app.Find("#zone").Change("Nueva Cordoba");
@@ -501,5 +519,3 @@ public sealed class ChangaPageTests : Bunit.TestContext
             CancellationToken cancellationToken) => respond(request);
     }
 }
-
-
