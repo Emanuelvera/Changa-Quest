@@ -30,7 +30,8 @@ public enum ChangaStatus
     Rejected,
     PendingResponse,
     Confirmed,
-    CompletionReview
+    CompletionReview,
+    Closed
 }
 
 public sealed class ChangaCategory
@@ -103,5 +104,16 @@ public sealed class ChangaAssignment
     public DateTimeOffset? CompletionDeadline { get; set; }
     public DateTimeOffset? CompletionRespondedAt { get; set; }
     public string? CompletionReviewCause { get; set; }
+    public Changa Changa { get; set; } = null!;
+}
+
+public sealed class ChangaRating
+{
+    public Guid Id { get; set; }
+    public Guid ChangaId { get; set; }
+    public string RaterId { get; set; } = string.Empty;
+    public string RateeId { get; set; } = string.Empty;
+    public int Score { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
     public Changa Changa { get; set; } = null!;
 }

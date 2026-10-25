@@ -375,6 +375,111 @@ public sealed class ChangaManagerTests
         Assert.Equal(ChangaManagerStatus.NotAssigned, (await manager.GetCompletionAsync("author-id", unassigned.Id)).Status);
     }
 
+    [Fact]
+    public async Task Closed_changa_allows_one_rating_per_part_and_profiles_return_only_aggregates()
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Closed;
+
+        var requesterRating = await manager.SubmitRatingAsync("requester-id", changa.Id, 5);
+        var duplicate = await manager.SubmitRatingAsync("requester-id", changa.Id, 4);
+        var workerProfile = await manager.GetRatingProfileAsync("worker-id", "worker-id");
+        var workerRating = await manager.SubmitRatingAsync("worker-id", changa.Id, 3);
+        var requesterProfile = await manager.GetRatingProfileAsync("requester-id", "requester-id");
+        var eligibility = await manager.GetRatingEligibilityAsync("requester-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, requesterRating.Status);
+        Assert.Contains(store.Ratings, rating => rating.RaterId == "requester-id" && rating.RateeId == "worker-id");
+        Assert.Equal(ChangaManagerStatus.RatingAlreadySubmitted, duplicate.Status);
+        Assert.Equal(5, workerProfile.RatingProfile!.AverageRating);
+        Assert.Equal(1, workerProfile.RatingProfile.RatingCount);
+        Assert.DoesNotContain(typeof(RatingProfileView).GetProperties(), property =>
+            property.Name.Contains("Rater", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ChangaManagerStatus.Success, workerRating.Status);
+        Assert.Equal(3, requesterProfile.RatingProfile!.AverageRating);
+        Assert.Equal(1, requesterProfile.RatingProfile.RatingCount);
+        Assert.Equal(2, store.Ratings.Count);
+        Assert.False(eligibility.RatingEligibility!.CanRate);
+        Assert.True(eligibility.RatingEligibility.HasRated);
+    }
+
+    [Theory]
+    [InlineData(ChangaStatus.Assigned)]
+    [InlineData(ChangaStatus.Confirmed)]
+    [InlineData(ChangaStatus.Cancelled)]
+    [InlineData(ChangaStatus.CompletionReview)]
+    [InlineData(ChangaStatus.PendingReview)]
+    public async Task Rating_is_unavailable_without_normal_close(ChangaStatus status)
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = status;
+
+        var eligibility = await manager.GetRatingEligibilityAsync("requester-id", changa.Id);
+        var submission = await manager.SubmitRatingAsync("requester-id", changa.Id, 5);
+
+        Assert.False(eligibility.RatingEligibility!.CanRate);
+        Assert.Equal(ChangaManagerStatus.RatingNotAvailable, submission.Status);
+        Assert.Empty(store.Ratings);
+    }
+
+    [Fact]
+    public async Task Rating_eligibility_is_false_when_the_other_party_has_no_account_id()
+    {
+        var changa = AvailableChanga(string.Empty);
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Closed;
+
+        var eligibility = await manager.GetRatingEligibilityAsync("worker-id", changa.Id);
+
+        Assert.False(eligibility.RatingEligibility!.CanRate);
+        Assert.False(eligibility.RatingEligibility.HasRated);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(6)]
+    public async Task Rating_rejects_scores_outside_one_to_five(int? score)
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Closed;
+
+        var result = await manager.SubmitRatingAsync("requester-id", changa.Id, score);
+
+        Assert.Equal(ChangaManagerStatus.Invalid, result.Status);
+        Assert.Contains("score", result.Errors!.Keys);
+        Assert.Empty(store.Ratings);
+    }
+
+    [Fact]
+    public async Task Rating_rejects_nonparticipants_and_empty_profiles_have_no_average()
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Closed;
+
+        var outsider = await manager.SubmitRatingAsync("outsider-id", changa.Id, 5);
+        var profile = await manager.GetRatingProfileAsync("requester-id", "requester-id");
+
+        Assert.Equal(ChangaManagerStatus.RatingForbidden, outsider.Status);
+        Assert.Null(profile.RatingProfile!.AverageRating);
+        Assert.Equal(0, profile.RatingProfile.RatingCount);
+        Assert.Empty(store.Ratings);
+    }
+
     private sealed class TestTimeProvider(DateTimeOffset now) : TimeProvider
     {
         private DateTimeOffset current = now;
@@ -495,6 +600,7 @@ public sealed class ChangaManagerTests
     {
         public List<Changa> Changas { get; set; } = [];
         public List<ChangaAssignment> Assignments { get; } = [];
+        public List<ChangaRating> Ratings { get; } = [];
 
         public FakeChangaStore(params Changa[] changas) => Changas.AddRange(changas);
 
@@ -560,6 +666,28 @@ public sealed class ChangaManagerTests
 
         public Task<Changa?> FindByIdAsync(Guid id) =>
             Task.FromResult(Changas.SingleOrDefault(item => item.Id == id));
+
+        public Task<bool> HasRatingAsync(Guid changaId, string raterId) =>
+            Task.FromResult(Ratings.Any(rating => rating.ChangaId == changaId && rating.RaterId == raterId));
+
+        public Task<ChangaRatingPersistenceResult> AddRatingAsync(ChangaRating rating)
+        {
+            if (Ratings.Any(existing => existing.ChangaId == rating.ChangaId && existing.RaterId == rating.RaterId))
+            {
+                return Task.FromResult(ChangaRatingPersistenceResult.AlreadyExists);
+            }
+
+            Ratings.Add(rating);
+            return Task.FromResult(ChangaRatingPersistenceResult.Added);
+        }
+
+        public Task<ChangaRatingAggregate> GetRatingAggregateAsync(string rateeId)
+        {
+            var received = Ratings.Where(rating => rating.RateeId == rateeId).ToArray();
+            return Task.FromResult(new ChangaRatingAggregate(
+                received.Length == 0 ? null : received.Average(rating => (double)rating.Score),
+                received.Length));
+        }
 
         public Task<ChangaTakePersistenceResult> TakeAsync(Guid id, string workerId)
         {

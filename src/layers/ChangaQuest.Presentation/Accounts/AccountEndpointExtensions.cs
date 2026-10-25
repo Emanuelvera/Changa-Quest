@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.ComponentModel.DataAnnotations;
 using ChangaQuest.BusinessLogic.Accounts;
+using ChangaQuest.BusinessLogic.Changas;
 using ChangaQuest.Entities.Accounts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -43,6 +44,17 @@ public static class AccountEndpointExtensions
             .RequireAuthorization()
             .Produces<CurrentAccountResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized);
+        accounts.MapGet("/me/profile", GetMyRatingProfileAsync)
+            .RequireAuthorization()
+            .Produces<RatingProfileView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+        accounts.MapGet("/{id}/profile", GetRatingProfileAsync)
+            .RequireAuthorization()
+            .Produces<RatingProfileView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return endpoints;
     }
@@ -183,6 +195,43 @@ public static class AccountEndpointExtensions
 
         return Results.Ok(new CurrentAccountResponse(user.Email ?? string.Empty));
     }
+
+    private static async Task<IResult> GetMyRatingProfileAsync(
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        return RatingProfileResult(await manager.GetRatingProfileAsync(userId, userId));
+    }
+
+    private static async Task<IResult> GetRatingProfileAsync(
+        string id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) =>
+        RatingProfileResult(await manager.GetRatingProfileAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier),
+            id));
+
+    private static IResult RatingProfileResult(ChangaManagerResult result) => result.Status switch
+    {
+        ChangaManagerStatus.Success => Results.Ok(result.RatingProfile),
+        ChangaManagerStatus.Unauthenticated => Results.Problem(
+            statusCode: StatusCodes.Status401Unauthorized,
+            title: "Sesión no iniciada",
+            detail: "Iniciá sesión para consultar un perfil."),
+        ChangaManagerStatus.Forbidden => Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Cuenta no habilitada",
+            detail: "La cuenta no cumple los requisitos para consultar perfiles."),
+        ChangaManagerStatus.NotFound => Results.Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "Perfil no encontrado",
+            detail: "No existe un perfil registrado con ese identificador."),
+        _ => Results.Problem(
+            statusCode: StatusCodes.Status500InternalServerError,
+            title: "Error interno",
+            detail: "No se pudo consultar el perfil.")
+    };
 }
 
 public sealed record RegisterAccountRequest(string? Email, string? Password, bool DeclaredAdult);

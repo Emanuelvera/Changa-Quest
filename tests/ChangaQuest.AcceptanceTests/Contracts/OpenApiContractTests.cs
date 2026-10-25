@@ -118,7 +118,31 @@ public class OpenApiContractTests
         Assert.Contains("completion_forbidden", contract, StringComparison.Ordinal);
         Assert.Contains("completion_not_pending", contract, StringComparison.Ordinal);
         Assert.Contains("completion_invalid_state", contract, StringComparison.Ordinal);
-        Assert.Contains("enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review]", contract, StringComparison.Ordinal);
+        Assert.Contains("enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review, closed]", contract, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rating_contract_limits_submission_and_exposes_only_profile_aggregates()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+
+        Assert.Contains("/api/v1/changas/{id}/rating:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/accounts/me/profile:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/accounts/{id}/profile:", contract, StringComparison.Ordinal);
+        Assert.Contains("getMyRatingProfile", contract, StringComparison.Ordinal);
+        Assert.Contains("getAccountRatingProfile", contract, StringComparison.Ordinal);
+        Assert.Contains("SubmitChangaRatingRequest:", contract, StringComparison.Ordinal);
+        Assert.Contains("minimum: 1", contract, StringComparison.Ordinal);
+        Assert.Contains("maximum: 5", contract, StringComparison.Ordinal);
+        Assert.Contains("rating_not_available", contract, StringComparison.Ordinal);
+        Assert.Contains("rating_already_submitted", contract, StringComparison.Ordinal);
+        Assert.Contains("otherPartyId:", contract, StringComparison.Ordinal);
+
+        var profile = ExtractOperation(contract, "    RatingProfile:", "    Problem:");
+        Assert.Contains("averageRating:", profile, StringComparison.Ordinal);
+        Assert.Contains("ratingCount:", profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("raterId:", profile, StringComparison.Ordinal);
     }
 
     private static string ExtractOperation(string document, string start, string end)

@@ -64,6 +64,18 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapGet("/{id:guid}/rating", GetRatingEligibilityAsync)
+            .Produces<ChangaRatingEligibilityView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        changas.MapPost("/{id:guid}/rating", SubmitRatingAsync)
+            .Produces<ChangaRatingReceiptView>(StatusCodes.Status201Created)
+            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
         changas.MapGet("/{id:guid}/coordination", GetCoordinationAsync)
             .Produces<ChangaCoordinationView>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -235,6 +247,72 @@ public static class ChangaEndpointExtensions
             StatusCodes.Status409Conflict, "Estado incompatible", "La changa no está en un estado que permita marcarla como terminada.", "completion_invalid_state"),
         _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo completar la operaci\u00f3n.")
     };
+
+    private static async Task<IResult> GetRatingEligibilityAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => RatingEligibilityResult(
+        await manager.GetRatingEligibilityAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static IResult RatingEligibilityResult(ChangaManagerResult result) => result.Status switch
+    {
+        ChangaManagerStatus.Success => Results.Ok(result.RatingEligibility),
+        ChangaManagerStatus.Unauthenticated => Problem(
+            StatusCodes.Status401Unauthorized, "Sesión no iniciada", "Iniciá sesión para consultar la calificación."),
+        ChangaManagerStatus.Forbidden => Problem(
+            StatusCodes.Status403Forbidden, "Cuenta no habilitada", "La cuenta no cumple los requisitos para calificar."),
+        ChangaManagerStatus.RatingForbidden => Problem(
+            StatusCodes.Status403Forbidden, "Acceso denegado", "Solo las partes asignadas pueden consultar la calificación.", "rating_forbidden"),
+        ChangaManagerStatus.NotFound => Problem(
+            StatusCodes.Status404NotFound, "Changa no encontrada", "No existe una changa con ese identificador.", "changa_not_found"),
+        _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo consultar la calificación.")
+    };
+
+    private static async Task<IResult> SubmitRatingAsync(
+        Guid id,
+        JsonElement request,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        if (request.ValueKind != JsonValueKind.Object ||
+            request.EnumerateObject().Count() != 1 ||
+            !request.TryGetProperty("score", out _))
+        {
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]>
+                {
+                    ["score"] = ["La solicitud solo admite el campo score, sin comentarios ni otros datos."]
+                },
+                title: "No se pudo guardar la calificación.");
+        }
+
+        var result = await manager.SubmitRatingAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier),
+            id,
+            ReadInt32(request, "score"));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Created(
+                $"/api/v1/changas/{id}/rating",
+                result.RatingReceipt),
+            ChangaManagerStatus.Invalid => Results.ValidationProblem(
+                result.Errors ?? new Dictionary<string, string[]>(),
+                title: "No se pudo guardar la calificación."),
+            ChangaManagerStatus.Unauthenticated => Problem(
+                StatusCodes.Status401Unauthorized, "Sesión no iniciada", "Iniciá sesión para calificar."),
+            ChangaManagerStatus.Forbidden => Problem(
+                StatusCodes.Status403Forbidden, "Cuenta no habilitada", "La cuenta no cumple los requisitos para calificar."),
+            ChangaManagerStatus.RatingForbidden => Problem(
+                StatusCodes.Status403Forbidden, "Acceso denegado", "Solo las partes asignadas pueden calificar.", "rating_forbidden"),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound, "Changa no encontrada", "No existe una changa con ese identificador.", "changa_not_found"),
+            ChangaManagerStatus.RatingNotAvailable => Problem(
+                StatusCodes.Status409Conflict, "Calificación no disponible", "Solo se puede calificar después del cierre normal.", "rating_not_available"),
+            ChangaManagerStatus.RatingAlreadySubmitted => Problem(
+                StatusCodes.Status409Conflict, "Calificación ya enviada", "Cada parte puede calificar una sola vez por changa.", "rating_already_submitted"),
+            _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo guardar la calificación.")
+        };
+    }
 
     private static async Task<IResult> GetCoordinationAsync(
         Guid id,

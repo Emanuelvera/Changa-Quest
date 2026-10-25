@@ -101,6 +101,48 @@ paths:
                 $ref: "#/components/schemas/CurrentAccount"
         "401":
           $ref: "#/components/responses/Problem"
+  /api/v1/accounts/me/profile:
+    get:
+      operationId: getMyRatingProfile
+      summary: Consulta el promedio y la cantidad de calificaciones de la cuenta autenticada
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Resumen agregado sin identidades de evaluadores.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingProfile"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/accounts/{id}/profile:
+    get:
+      operationId: getAccountRatingProfile
+      summary: Consulta el resumen de calificaciones de un perfil registrado
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resumen agregado sin identidades de evaluadores ni otros datos de cuenta.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingProfile"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
   /api/v1/changas:
     get:
       operationId: listAvailableChangas
@@ -266,6 +308,79 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "409":
           description: La changa no está asignada; código changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/rating:
+    get:
+      operationId: getChangaRatingEligibility
+      summary: Consulta si una parte puede calificar a la otra
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado de elegibilidad; no incluye la calificación de la otra parte.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaRatingEligibility"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código rating_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: submitChangaRating
+      summary: Registra una nota sin texto para la otra parte tras el cierre normal
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitChangaRatingRequest"
+      responses:
+        "201":
+          description: Calificación registrada; la respuesta no incluye identidad del evaluador.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaRatingReceipt"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código rating_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: Estado no elegible o calificación ya enviada; rating_not_available o rating_already_submitted.
           content:
             application/problem+json:
               schema:
@@ -613,7 +728,7 @@ components:
           enum: [requester, worker, null]
         status:
           type: string
-          enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review]
+          enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review, closed]
         reviewReason:
           type: string
           nullable: true
@@ -659,6 +774,52 @@ components:
           type: string
           nullable: true
           enum: [rejected, expired, null]
+    ChangaRatingEligibility:
+      type: object
+      required: [changaId, canRate, hasRated]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        canRate:
+          type: boolean
+          description: True solo tras el cierre normal y antes de que esta parte envíe su nota.
+        hasRated:
+          type: boolean
+    SubmitChangaRatingRequest:
+      type: object
+      required: [score]
+      additionalProperties: false
+      properties:
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+    ChangaRatingReceipt:
+      type: object
+      required: [changaId, score]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+    RatingProfile:
+      type: object
+      required: [averageRating, ratingCount]
+      properties:
+        averageRating:
+          type: number
+          format: double
+          minimum: 1
+          maximum: 5
+          nullable: true
+          description: Null cuando todavía no hay calificaciones recibidas.
+        ratingCount:
+          type: integer
+          minimum: 0
     ChangaCategory:
       type: object
       required: [id, name]
@@ -695,7 +856,7 @@ components:
             required: [phone]
     ChangaCoordination:
       type: object
-      required: [changaId, description, role, yourConsent, otherPartyConsent, hasMutualConsent, otherPhone, exactAddress]
+      required: [changaId, description, role, otherPartyId, yourConsent, otherPartyConsent, hasMutualConsent, otherPhone, exactAddress]
       properties:
         changaId:
           type: string
@@ -705,6 +866,10 @@ components:
         role:
           type: string
           enum: [requester, worker]
+        otherPartyId:
+          type: string
+          nullable: true
+          description: Identificador opaco de la otra parte, visible solo en la coordinación privada.
         yourConsent:
           type: string
           enum: [pending, accepted, declined]

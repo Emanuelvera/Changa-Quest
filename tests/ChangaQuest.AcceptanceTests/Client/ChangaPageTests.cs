@@ -21,6 +21,8 @@ public sealed class ChangaPageTests : Bunit.TestContext
         Assert.Contains("Ver tareas", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("href=\"/publicar\"", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("Publicar changa", layout.Markup, StringComparison.Ordinal);
+        Assert.Contains("href=\"/perfil\"", layout.Markup, StringComparison.Ordinal);
+        Assert.Contains("Perfil", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("Contenido de prueba", layout.Markup, StringComparison.Ordinal);
     }
 
@@ -439,6 +441,225 @@ public sealed class ChangaPageTests : Bunit.TestContext
         page.Find("button.button:not(.secondary)").Click();
 
         page.WaitForAssertion(() => Assert.Contains("confirmada", page.Markup));
+    }
+
+    [Fact]
+    public void Rating_page_hides_submission_until_normal_close()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":false,"hasRated":false}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+
+        page.WaitForAssertion(() => Assert.Contains("solo después del cierre normal", page.Markup));
+        Assert.DoesNotContain("<form", page.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rating_page_reports_when_a_rating_was_already_submitted()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":false,"hasRated":true}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+
+        page.WaitForAssertion(() => Assert.Contains("Ya enviaste tu calificación", page.Markup));
+        Assert.DoesNotContain("<form", page.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rating_page_shows_load_errors_and_can_retry()
+    {
+        var requests = 0;
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+        {
+            requests++;
+            return Task.FromResult(requests == 1
+                ? Problem(HttpStatusCode.InternalServerError, "No se pudo cargar.")
+                : Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":true,"hasRated":false}"""));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo cargar.", page.Markup));
+        page.Find("button.secondary").Click();
+        page.WaitForAssertion(() => Assert.Contains("Elegí una nota", page.Markup));
+    }
+
+    [Fact]
+    public void Rating_page_shows_submission_errors_without_discarding_the_selected_score()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(Json(
+                    """{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":true,"hasRated":false}"""));
+            }
+
+            return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No se pudo guardar."));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+        page.WaitForElement("#score-4");
+        page.Find("#score-4").Change("4");
+        page.Find("form").Submit();
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo guardar.", page.Markup));
+        page.Find("button.secondary").Click();
+        page.WaitForElement("#score-4");
+        Assert.Contains("checked", page.Find("#score-4").OuterHtml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rating_page_posts_an_integer_score_and_reports_success()
+    {
+        string? submittedBody = null;
+        Services.AddSingleton(new HttpClient(new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":true,"hasRated":false}""");
+            }
+
+            submittedBody = await request.Content!.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent(
+                    """{"changaId":"a1000000-0000-4000-8000-000000000001","score":5}""",
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        })) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+        page.WaitForAssertion(() => Assert.Contains("Elegí una nota", page.Markup));
+        page.Find("#score-5").Change("5");
+        page.Find("form").Submit();
+
+        page.WaitForAssertion(() =>
+        {
+            using var body = System.Text.Json.JsonDocument.Parse(submittedBody!);
+            Assert.Equal(5, body.RootElement.GetProperty("score").GetInt32());
+            Assert.Contains("Calificación guardada", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Rating_page_reloads_and_discards_stale_eligibility_when_route_id_changes()
+    {
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var firstResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Services.AddSingleton(new HttpClient(new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith(firstId.ToString(), StringComparison.Ordinal))
+            {
+                return firstResponse.Task;
+            }
+
+            return Task.FromResult(Json(
+                $$"""{"changaId":"{{secondId}}","canRate":true,"hasRated":false}"""));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var navigation = Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo($"http://localhost/tareas/{firstId}/calificacion");
+        var app = Render<App>();
+        navigation.NavigateTo($"http://localhost/tareas/{secondId}/calificacion");
+
+        app.WaitForAssertion(() => Assert.Contains("Elegí una nota", app.Markup));
+        firstResponse.SetResult(Json(
+            $$"""{"changaId":"{{firstId}}","canRate":false,"hasRated":false}"""));
+        app.WaitForAssertion(() => Assert.Contains("Elegí una nota", app.Markup));
+        Assert.DoesNotContain("solo después del cierre normal", app.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Profile_page_shows_empty_state_without_fabricating_average()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"averageRating":null,"ratingCount":0}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Perfil>();
+
+        page.WaitForAssertion(() => Assert.Contains("Todavía no hay calificaciones", page.Markup));
+        Assert.DoesNotContain("Promedio:", page.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Profile_page_shows_only_average_and_rating_count()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"averageRating":4.5,"ratingCount":2}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Perfil>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Promedio:", page.Markup);
+            Assert.Contains("4,5", page.Markup);
+            Assert.Contains("Cantidad:", page.Markup);
+            Assert.Contains(">2<", page.Markup);
+            Assert.DoesNotContain("evaluador", page.Markup, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void Profile_page_does_not_replace_current_profile_with_a_stale_response()
+    {
+        const string firstAccountId = "account-a";
+        const string secondAccountId = "account-b";
+        var firstResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Services.AddSingleton(new HttpClient(new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith(firstAccountId, StringComparison.Ordinal))
+            {
+                return firstResponse.Task;
+            }
+
+            return Task.FromResult(Json("""{"averageRating":2,"ratingCount":1}"""));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var navigation = Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo($"http://localhost/perfil/{firstAccountId}");
+        var app = Render<App>();
+        navigation.NavigateTo($"http://localhost/perfil/{secondAccountId}");
+
+        app.WaitForAssertion(() => Assert.Contains("2,0", app.Markup));
+        firstResponse.SetResult(Json("""{"averageRating":4,"ratingCount":1}"""));
+        app.WaitForAssertion(() => Assert.Contains("2,0", app.Markup));
+        Assert.DoesNotContain("4,0", app.Markup, StringComparison.Ordinal);
     }
 
     private const string PendingCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"pending","otherPartyConsent":"accepted","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}""";

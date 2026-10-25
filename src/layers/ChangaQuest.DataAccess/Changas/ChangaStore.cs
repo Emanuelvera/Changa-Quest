@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using ChangaQuest.Entities.Changas;
 using ChangaQuest.DataAccess.Accounts;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChangaQuest.DataAccess.Changas;
@@ -161,6 +162,42 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
             .Where(assignment => assignment.WorkerId == userId || assignment.Changa.AuthorId == userId)
             .OrderByDescending(assignment => assignment.AssignedAt)
             .ToArrayAsync();
+
+    public Task<bool> HasRatingAsync(Guid changaId, string raterId) =>
+        context.ChangaRatings
+            .AsNoTracking()
+            .AnyAsync(rating => rating.ChangaId == changaId && rating.RaterId == raterId);
+
+    public async Task<ChangaRatingPersistenceResult> AddRatingAsync(ChangaRating rating)
+    {
+        context.ChangaRatings.Add(rating);
+        try
+        {
+            await context.SaveChangesAsync();
+            return ChangaRatingPersistenceResult.Added;
+        }
+        catch (DbUpdateException exception) when (
+            exception.InnerException is SqlException { Number: 2601 or 2627 } sqlException &&
+            sqlException.Message.Contains("IX_ChangaRatings_ChangaId_RaterId", StringComparison.Ordinal))
+        {
+            context.Entry(rating).State = EntityState.Detached;
+            return ChangaRatingPersistenceResult.AlreadyExists;
+        }
+    }
+
+    public async Task<ChangaRatingAggregate> GetRatingAggregateAsync(string rateeId)
+    {
+        var aggregate = await context.ChangaRatings
+            .AsNoTracking()
+            .Where(rating => rating.RateeId == rateeId)
+            .GroupBy(_ => 1)
+            .Select(group => new ChangaRatingAggregate(
+                group.Average(rating => (double)rating.Score),
+                group.Count()))
+            .SingleOrDefaultAsync();
+
+        return aggregate ?? new ChangaRatingAggregate(null, 0);
+    }
 
     public async Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples)
     {

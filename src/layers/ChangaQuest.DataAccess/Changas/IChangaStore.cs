@@ -16,6 +16,9 @@ public interface IChangaStore
         DateTimeOffset? respondedAt = null, string? reviewCause = null);
     Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
     Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
+    Task<bool> HasRatingAsync(Guid changaId, string raterId);
+    Task<ChangaRatingPersistenceResult> AddRatingAsync(ChangaRating rating);
+    Task<ChangaRatingAggregate> GetRatingAggregateAsync(string rateeId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
     Task<IReadOnlyList<ChangaCategory>> ListApprovedCategoriesAsync() =>
         Task.FromResult<IReadOnlyList<ChangaCategory>>(ChangaCategoryCatalog.Approved);
@@ -38,3 +41,11 @@ public enum ChangaCompletionTransitionResult
     Updated,
     StateChanged
 }
+
+public enum ChangaRatingPersistenceResult
+{
+    Added,
+    AlreadyExists
+}
+
+public sealed record ChangaRatingAggregate(double? AverageRating, int RatingCount);
