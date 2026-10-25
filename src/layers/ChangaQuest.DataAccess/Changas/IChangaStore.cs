@@ -13,6 +13,11 @@ public interface IChangaStore
     Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
     Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
+    Task<IReadOnlyList<ChangaCategory>> ListApprovedCategoriesAsync() =>
+        Task.FromResult<IReadOnlyList<ChangaCategory>>(ChangaCategoryCatalog.Approved);
+    Task<ChangaCategory?> FindCategoryAsync(string id) =>
+        Task.FromResult(ChangaCategoryCatalog.Approved.SingleOrDefault(category => category.Id == id));
+    Task SaveAsync(Changa changa) => Task.CompletedTask;
 }
 
 public enum ChangaTakePersistenceResult

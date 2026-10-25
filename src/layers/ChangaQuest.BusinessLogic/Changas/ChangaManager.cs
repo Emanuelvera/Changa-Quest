@@ -24,6 +24,25 @@ public sealed class ChangaManager(
             command.MaterialsNeeded,
             command.MaterialsProvider,
             command.HasMaterialsProvider);
+        if (string.IsNullOrWhiteSpace(command.CategoryId))
+        {
+            validation = validation with
+            {
+                IsValid = false,
+                Errors = validation.Errors
+                    .Append(new KeyValuePair<string, string[]>("categoryId", ["Elegí una categoría aprobada."]))
+                    .ToDictionary(item => item.Key, item => item.Value)
+            };
+        }
+        else if (await changaStore.FindCategoryAsync(command.CategoryId.Trim()) is not { IsApproved: true })
+        {
+            return new ChangaManagerResult(
+                ChangaManagerStatus.InvalidCategory,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["categoryId"] = ["La categoría no existe o no está aprobada."]
+                });
+        }
         if (!validation.IsValid)
         {
             return new ChangaManagerResult(ChangaManagerStatus.Invalid, Errors: validation.Errors);
@@ -33,6 +52,7 @@ public sealed class ChangaManager(
         {
             Id = Guid.NewGuid(),
             Description = command.Description!.Trim(),
+            CategoryId = command.CategoryId!.Trim(),
             Reward = command.Reward!.Value,
             Zone = command.Zone!.Trim(),
             ExactAddress = command.ExactAddress!.Trim(),
@@ -41,13 +61,73 @@ public sealed class ChangaManager(
             MaterialsNeeded = command.MaterialsNeeded!.Value,
             MaterialsProvider = ParseMaterialsProvider(command.MaterialsProvider),
             AssignmentMode = AssignmentMode.FirstCome,
-            Status = ChangaStatus.Available,
+            Status = ChangaStatus.PendingReview,
             AuthorId = userId,
             CreatedAt = DateTimeOffset.UtcNow
         };
 
         await changaStore.AddAsync(changa);
         return new ChangaManagerResult(ChangaManagerStatus.Success, Changa: Project(changa));
+    }
+
+    public async Task<ChangaManagerResult> ListApprovedCategoriesAsync(string? userId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        return new ChangaManagerResult(
+            ChangaManagerStatus.Success,
+            Categories: await changaStore.ListApprovedCategoriesAsync());
+    }
+
+    public async Task<ChangaManagerResult> ApproveAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Status != ChangaStatus.PendingReview) return new(ChangaManagerStatus.InvalidReview);
+        if (await changaStore.FindCategoryAsync(changa.CategoryId) is not { IsApproved: true })
+        {
+            return new(
+                ChangaManagerStatus.InvalidReview,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["categoryId"] = ["La categoría ya no está aprobada."]
+                });
+        }
+        changa.Status = ChangaStatus.Available;
+        changa.ReviewReason = null;
+        await changaStore.SaveAsync(changa);
+        return new(ChangaManagerStatus.Success, Changa: Project(changa));
+    }
+
+    public async Task<ChangaManagerResult> RejectAsync(string? userId, Guid id, string? reason)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Status != ChangaStatus.PendingReview) return new(ChangaManagerStatus.InvalidReview);
+        var reviewReason = string.IsNullOrWhiteSpace(reason)
+            ? "La publicación no fue aprobada."
+            : reason.Trim();
+        if (reviewReason.Length > 500)
+        {
+            return new(
+                ChangaManagerStatus.InvalidReview,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["reason"] = ["El motivo no puede superar los 500 caracteres."]
+                });
+        }
+        changa.Status = ChangaStatus.Rejected;
+        changa.ReviewReason = reviewReason;
+        await changaStore.SaveAsync(changa);
+        return new(ChangaManagerStatus.Success, Changa: Project(changa));
     }
 
     public async Task<ChangaManagerResult> ListAvailableAsync(string? userId)
@@ -376,6 +456,7 @@ public sealed class ChangaManager(
     private static ChangaPublicView Project(Changa changa, double distanceKm = 0) => new(
         changa.Id,
         changa.Description,
+        changa.CategoryId,
         changa.Reward,
         changa.Zone,
         changa.MaterialsNeeded,
@@ -390,8 +471,11 @@ public sealed class ChangaManager(
             ChangaStatus.Available => "available",
             ChangaStatus.Assigned => "assigned",
             ChangaStatus.Cancelled => "cancelled",
+            ChangaStatus.PendingReview => "pending_review",
+            ChangaStatus.Rejected => "rejected",
             _ => "available"
         },
+        changa.ReviewReason,
         "first_come",
         changa.IsSample,
         changa.CreatedAt,
@@ -484,7 +568,8 @@ public sealed record ChangaCreateCommand(
     string? MaterialsProvider,
     bool HasMaterialsProvider,
     double? Latitude = null,
-    double? Longitude = null);
+    double? Longitude = null,
+    string? CategoryId = null);
 
 public sealed record ChangaSearchQuery(
     double? Latitude,
@@ -499,11 +584,13 @@ public sealed record ChangaValidationResult(
 public sealed record ChangaPublicView(
     Guid Id,
     string Description,
+    string CategoryId,
     int Reward,
     string Zone,
     bool MaterialsNeeded,
     string? MaterialsProvider,
     string Status,
+    string? ReviewReason,
     string AssignmentMode,
     bool IsSample,
     DateTimeOffset CreatedAt,
@@ -521,7 +608,9 @@ public enum ChangaManagerStatus
     NotAvailable,
     CoordinationForbidden,
     NotAssigned,
-    InvalidPhone
+    InvalidPhone,
+    InvalidCategory,
+    InvalidReview
 }
 
 public enum ChangaCoordinationRole
@@ -534,6 +623,7 @@ public sealed record ChangaManagerResult(
     ChangaManagerStatus Status,
     ChangaPublicView? Changa = null,
     IReadOnlyList<ChangaPublicView>? Changas = null,
+    IReadOnlyList<ChangaCategory>? Categories = null,
     IReadOnlyDictionary<string, string[]>? Errors = null,
     ChangaAssignmentView? Assignment = null,
     ChangaCoordinationView? Coordination = null,

@@ -9,7 +9,7 @@ namespace ChangaQuest.UnitTests.Changas;
 public sealed class ChangaManagerTests
 {
     [Fact]
-    public async Task Eligible_account_creates_first_come_available_changa_and_public_projection()
+    public async Task Eligible_account_creates_first_come_pending_changa_and_public_projection()
     {
         var store = new FakeChangaStore();
         var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
@@ -18,12 +18,52 @@ public sealed class ChangaManagerTests
 
         Assert.Equal(ChangaManagerStatus.Success, result.Status);
         var saved = Assert.Single(store.Changas);
-        Assert.Equal(ChangaStatus.Available, saved.Status);
+        Assert.Equal(ChangaStatus.PendingReview, saved.Status);
+        Assert.Equal("limpieza-domestica", saved.CategoryId);
         Assert.Equal(AssignmentMode.FirstCome, saved.AssignmentMode);
         Assert.Equal("account-id", saved.AuthorId);
         Assert.Equal("Dirección privada 123", saved.ExactAddress);
         Assert.Equal("first_come", result.Changa?.AssignmentMode);
         Assert.DoesNotContain(typeof(ChangaPublicView).GetProperties(), property => property.Name == "ExactAddress");
+    }
+
+    [Fact]
+    public async Task Unapproved_category_is_rejected_without_persisting()
+    {
+        var store = new FakeChangaStore();
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.CreateAsync("account-id", ValidCommand() with { CategoryId = "trabajo-electrico" });
+
+        Assert.Equal(ChangaManagerStatus.InvalidCategory, result.Status);
+        Assert.Empty(store.Changas);
+    }
+
+    [Fact]
+    public async Task Pending_changa_can_be_approved_or_rejected_by_review_operation()
+    {
+        var changa = new Changa
+        {
+            Id = Guid.NewGuid(),
+            Description = "Descripción válida para una changa.",
+            CategoryId = "limpieza-domestica",
+            Status = ChangaStatus.PendingReview
+        };
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var approved = await manager.ApproveAsync("account-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, approved.Status);
+        Assert.Equal(ChangaStatus.Available, changa.Status);
+
+        changa.Status = ChangaStatus.PendingReview;
+        var rejected = await manager.RejectAsync("account-id", changa.Id, "Fuera del alcance.");
+
+        Assert.Equal(ChangaManagerStatus.Success, rejected.Status);
+        Assert.Equal(ChangaStatus.Rejected, changa.Status);
+        Assert.Equal("Fuera del alcance.", changa.ReviewReason);
+        Assert.Empty(await store.ListAvailableAsync());
     }
 
     [Fact]
@@ -355,7 +395,8 @@ public sealed class ChangaManagerTests
         "Dirección privada 123",
         true,
         "worker",
-        true);
+        true,
+        CategoryId: "limpieza-domestica");
 
     private sealed class FakeChangaStore : IChangaStore
     {

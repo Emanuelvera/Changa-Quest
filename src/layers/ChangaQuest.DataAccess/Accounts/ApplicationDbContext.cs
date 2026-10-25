@@ -9,6 +9,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     : IdentityDbContext<AppUser>(options)
 {
     public DbSet<Changa> Changas => Set<Changa>();
+    public DbSet<ChangaCategory> ChangaCategories => Set<ChangaCategory>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -17,6 +18,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         {
             entity.HasKey(changa => changa.Id);
             entity.Property(changa => changa.Description).HasMaxLength(ChangaPolicy.MaximumDescriptionLength).IsRequired();
+            entity.Property(changa => changa.CategoryId).HasMaxLength(64).IsRequired(false);
+            entity.Property(changa => changa.ReviewReason).HasMaxLength(500);
             entity.Property(changa => changa.Zone).HasMaxLength(ChangaPolicy.MaximumZoneLength).IsRequired();
             entity.Property(changa => changa.ExactAddress).HasMaxLength(ChangaPolicy.MaximumExactAddressLength).IsRequired();
             entity.Property(changa => changa.Latitude).HasPrecision(9, 6);
@@ -29,6 +32,14 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                 .WithOne(assignment => assignment.Changa)
                 .HasForeignKey<ChangaAssignment>(assignment => assignment.ChangaId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<ChangaCategory>(entity =>
+        {
+            entity.HasKey(category => category.Id);
+            entity.Property(category => category.Id).HasMaxLength(64);
+            entity.Property(category => category.Name).HasMaxLength(120).IsRequired();
+            entity.Property(category => category.IsApproved).IsRequired();
+            entity.HasData(ChangaCategoryCatalog.Approved);
         });
         builder.Entity<ChangaAssignment>(entity =>
         {

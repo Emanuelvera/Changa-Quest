@@ -20,6 +20,10 @@ public static class ChangaEndpointExtensions
             .ProducesValidationProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
+        changas.MapGet("/categories", ListCategoriesAsync)
+            .Produces<IReadOnlyList<ChangaCategoryView>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
         changas.MapGet("", ListAsync)
             .Produces<IReadOnlyList<ChangaPublicView>>(StatusCodes.Status200OK)
             .ProducesValidationProblem(StatusCodes.Status400BadRequest)
@@ -73,7 +77,8 @@ public static class ChangaEndpointExtensions
             ReadString(request, "materialsProvider"),
             request.ValueKind == JsonValueKind.Object && request.TryGetProperty("materialsProvider", out _),
             ReadDouble(request, "latitude"),
-            ReadDouble(request, "longitude"));
+            ReadDouble(request, "longitude"),
+            ReadString(request, "categoryId"));
         var result = await manager.CreateAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), command);
 
         return result.Status switch
@@ -84,6 +89,11 @@ public static class ChangaEndpointExtensions
             ChangaManagerStatus.Invalid => Results.ValidationProblem(
                 result.Errors ?? new Dictionary<string, string[]>(),
                 title: "No se pudo publicar la changa."),
+            ChangaManagerStatus.InvalidCategory => Problem(
+                StatusCodes.Status400BadRequest,
+                "Categoría no aprobada",
+                "Elegí una categoría existente y aprobada.",
+                "category_not_approved"),
             ChangaManagerStatus.Unauthenticated => Problem(
                 StatusCodes.Status401Unauthorized,
                 "Sesión no iniciada",
@@ -93,6 +103,20 @@ public static class ChangaEndpointExtensions
                 "Cuenta no habilitada",
                 "Solo las cuentas adultas con correo verificado pueden publicar."),
             _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo completar la operación.")
+        };
+    }
+
+    private static async Task<IResult> ListCategoriesAsync(
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.ListApprovedCategoriesAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Categories!
+                .Select(category => new ChangaCategoryView(category.Id, category.Name))
+                .ToArray()),
+            _ => AccessProblem(result.Status)
         };
     }
 
@@ -306,3 +330,5 @@ public static class ChangaEndpointExtensions
 public sealed record ChangaTakeResponse(
     ChangaPublicView Changa,
     ChangaAssignmentView Assignment);
+
+public sealed record ChangaCategoryView(string Id, string Name);
