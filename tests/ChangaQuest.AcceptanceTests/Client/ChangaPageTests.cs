@@ -317,7 +317,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
             Assert.Contains("Dirección ficticia 123", page.Markup, StringComparison.Ordinal);
             Assert.Contains("permanecen ocultos", page.Markup);
             Assert.Contains("teléfono ficticio", page.Markup);
-            Assert.DoesNotContain("<a", page.Markup, StringComparison.Ordinal);
+            Assert.Contains($"/tareas/{id}/finalizacion", page.Markup);
             Assert.Contains("label for=\"phone\"", page.Markup);
         });
 
@@ -357,6 +357,88 @@ public sealed class ChangaPageTests : Bunit.TestContext
             Assert.DoesNotContain("Dirección ficticia 123", page.Markup);
             Assert.Contains($"/tareas/{id}/coordinacion", page.Markup);
         });
+    }
+
+    [Fact]
+    public void Completion_page_marks_work_done_and_shows_a_clear_response_deadline()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var marked = false;
+        var handler = new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","status":"assigned","markedDoneAt":null,"responseDeadline":null,"reviewCause":null}""");
+            }
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.EndsWith("/completion/mark-done", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            marked = true;
+            return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","status":"pending_response","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Finalizacion>(parameters => parameters.Add(component => component.Id, id));
+        page.WaitForAssertion(() => Assert.Contains("Marcar como terminada", page.Markup));
+        page.Find("button").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.True(marked);
+            Assert.Contains("pendiente de respuesta", page.Markup);
+            Assert.Contains("La persona solicitante puede responder hasta", page.Markup);
+            Assert.Contains("2026-10-25T15:20:00", page.Markup);
+            Assert.Contains("no procesa ni verifica pagos", page.Markup);
+            Assert.DoesNotContain("Direcci\u00f3n", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Completion_page_confirms_or_rejects_without_claiming_closure_or_administrative_resolution()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var handler = new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"pending_response","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+            }
+            Assert.EndsWith("/completion/reject", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"completion_review","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":"rejected"}""");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Finalizacion>(parameters => parameters.Add(component => component.Id, id));
+        page.WaitForAssertion(() => Assert.Contains("Rechazar y dejar pendiente de", page.Markup));
+        page.Find("button.button.secondary").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("La changa", page.Markup);
+            Assert.Contains("no se reasigna", page.Markup);
+            Assert.DoesNotContain("administrativa", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Completion_page_confirm_button_posts_confirm_and_shows_confirmed_state()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var handler = new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"pending_response","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+            }
+            Assert.EndsWith("/completion/confirm", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"confirmed","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Finalizacion>(parameters => parameters.Add(component => component.Id, id));
+        page.WaitForAssertion(() => Assert.Contains("Confirmar", page.Markup));
+        page.Find("button.button:not(.secondary)").Click();
+
+        page.WaitForAssertion(() => Assert.Contains("confirmada", page.Markup));
     }
 
     private const string PendingCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"pending","otherPartyConsent":"accepted","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}""";

@@ -185,6 +185,20 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.Property<Guid>("ChangaId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTimeOffset?>("CompletionDeadline")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("CompletionRequestedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("CompletionRespondedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CompletionReviewCause")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+
                     b.Property<string>("RequesterPhone")
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");

@@ -95,6 +95,41 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         return ChangaTakePersistenceResult.Assigned;
     }
 
+    public async Task<ChangaCompletionTransitionResult> TransitionCompletionAsync(
+        Guid id,
+        ChangaStatus expectedStatus,
+        ChangaStatus newStatus,
+        DateTimeOffset? requestedAt = null,
+        DateTimeOffset? deadline = null,
+        DateTimeOffset? respondedAt = null,
+        string? reviewCause = null)
+    {
+        context.ChangeTracker.Clear();
+        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        var updated = respondedAt is { } responseTime
+            ? await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE [Changas] SET [Status] = {newStatus.ToString()} WHERE [Id] = {id} AND [Status] = {expectedStatus.ToString()} AND EXISTS (SELECT 1 FROM [ChangaAssignment] WHERE [ChangaId] = {id} AND [CompletionDeadline] > {responseTime})")
+            : await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE [Changas] SET [Status] = {newStatus.ToString()} WHERE [Id] = {id} AND [Status] = {expectedStatus.ToString()}");
+        if (updated != 1)
+        {
+            return ChangaCompletionTransitionResult.StateChanged;
+        }
+
+        var assignmentUpdated = await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE [ChangaAssignment] SET [CompletionRequestedAt] = COALESCE({requestedAt}, [CompletionRequestedAt]), [CompletionDeadline] = COALESCE({deadline}, [CompletionDeadline]), [CompletionRespondedAt] = COALESCE({respondedAt}, [CompletionRespondedAt]), [CompletionReviewCause] = {reviewCause} WHERE [ChangaId] = {id}");
+        if (assignmentUpdated != 1)
+        {
+            await transaction.RollbackAsync();
+            context.ChangeTracker.Clear();
+            return ChangaCompletionTransitionResult.StateChanged;
+        }
+
+        await transaction.CommitAsync();
+        context.ChangeTracker.Clear();
+        return ChangaCompletionTransitionResult.Updated;
+    }
+
     public async Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone)
     {
         var changa = await context.Changas

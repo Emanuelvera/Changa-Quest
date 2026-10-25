@@ -230,6 +230,154 @@ paths:
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/Problem"
+  /api/v1/changas/{id}/completion:
+    get:
+      operationId: getChangaCompletion
+      summary: Consulta la finalización solo para las partes asignadas
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado de finalización autorizado, sin dirección ni teléfono.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: El identificador no existe; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: La changa no está asignada; código changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/completion/mark-done:
+    post:
+      operationId: markChangaDone
+      summary: La persona realizadora asignada marca la changa como terminada
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Se inicia el plazo de 20 minutos para responder.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no puede marcar la finalización; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: Estado incompatible o sin asignación; completion_invalid_state o changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/completion/confirm:
+    post:
+      operationId: confirmChangaCompletion
+      summary: La persona solicitante confirma la realización antes del vencimiento
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: La realización queda confirmada; la changa no se cierra.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no puede responder; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: finalización no pendiente o sin asignación; completion_not_pending o changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/completion/reject:
+    post:
+      operationId: rejectChangaCompletion
+      summary: La persona solicitante rechaza la realización antes del vencimiento
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: La changa queda pendiente de revisión por finalización, sin cierre ni reasignación.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no puede responder; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: finalización no pendiente o sin asignación; completion_not_pending o changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/changas/{id}/coordination:
     get:
       operationId: getChangaCoordination
@@ -465,7 +613,7 @@ components:
           enum: [requester, worker, null]
         status:
           type: string
-          enum: [available, assigned, cancelled, pending_review, rejected]
+          enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review]
         reviewReason:
           type: string
           nullable: true
@@ -484,6 +632,33 @@ components:
           format: double
           minimum: 0
           description: Distancia aproximada en línea recta desde la ubicación de búsqueda.
+    ChangaCompletion:
+      type: object
+      required: [changaId, description, role, status, markedDoneAt, responseDeadline, reviewCause]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        role:
+          type: string
+          enum: [requester, worker]
+        status:
+          type: string
+          enum: [assigned, pending_response, confirmed, completion_review]
+        markedDoneAt:
+          type: string
+          format: date-time
+          nullable: true
+        responseDeadline:
+          type: string
+          format: date-time
+          nullable: true
+        reviewCause:
+          type: string
+          nullable: true
+          enum: [rejected, expired, null]
     ChangaCategory:
       type: object
       required: [id, name]

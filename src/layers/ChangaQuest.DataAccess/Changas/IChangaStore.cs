@@ -10,6 +10,10 @@ public interface IChangaStore
     Task<Changa?> FindAvailableByIdAsync(Guid id);
     Task<Changa?> FindByIdAsync(Guid id);
     Task<ChangaTakePersistenceResult> TakeAsync(Guid id, string workerId);
+    Task<ChangaCompletionTransitionResult> TransitionCompletionAsync(
+        Guid id, ChangaStatus expectedStatus, ChangaStatus newStatus,
+        DateTimeOffset? requestedAt = null, DateTimeOffset? deadline = null,
+        DateTimeOffset? respondedAt = null, string? reviewCause = null);
     Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
     Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
@@ -27,4 +31,10 @@ public enum ChangaTakePersistenceResult
     AlreadyAssignedToOther,
     NotAvailable,
     NotFound
+}
+
+public enum ChangaCompletionTransitionResult
+{
+    Updated,
+    StateChanged
 }

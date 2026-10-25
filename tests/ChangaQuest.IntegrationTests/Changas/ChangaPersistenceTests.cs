@@ -46,7 +46,7 @@ public class ChangaPersistenceTests
             {
                 Id = pendingId,
                 Description = "Descripción pendiente para una changa.",
-                CategoryId = categories.Single().Id,
+                CategoryId = categories[0].Id,
                 Reward = 5000,
                 Zone = "Centro",
                 ExactAddress = "Dirección privada 123",
@@ -63,7 +63,7 @@ public class ChangaPersistenceTests
             {
                 Id = revokedCategoryId,
                 Description = "Descripción para una categoría revocada.",
-                CategoryId = categories.Single().Id,
+                CategoryId = categories[0].Id,
                 Reward = 5000,
                 Zone = "Centro",
                 ExactAddress = "Dirección privada 456",
@@ -72,7 +72,7 @@ public class ChangaPersistenceTests
                 Status = ChangaStatus.Available,
                 CreatedAt = DateTimeOffset.UtcNow
             });
-            var category = await context.ChangaCategories.SingleAsync(item => item.Id == categories.Single().Id);
+            var category = await context.ChangaCategories.SingleAsync(item => item.Id == categories[0].Id);
             category.IsApproved = false;
             await context.SaveChangesAsync();
 
@@ -296,31 +296,87 @@ public class ChangaPersistenceTests
             await using (var context = new ApplicationDbContext(options))
             {
                 await context.Database.MigrateAsync("20261022232936_AddChangaAssignments");
-                context.Changas.Add(new Changa
-                {
-                    Id = changaId,
-                    Description = "Ayudar a organizar libros en una biblioteca pequeña.",
-                    Reward = 12000,
-                    Zone = "Centro",
-                    ExactAddress = "Dirección ficticia 123",
-                    MaterialsNeeded = false,
-                    AssignmentMode = AssignmentMode.FirstCome,
-                    Status = ChangaStatus.Assigned,
-                    AuthorId = "requester-id",
-                    CreatedAt = DateTimeOffset.UtcNow
-                });
-                await context.SaveChangesAsync();
                 await context.Database.ExecuteSqlInterpolatedAsync(
-                    $"INSERT INTO [ChangaAssignment] ([Id], [ChangaId], [WorkerId], [AssignedAt]) VALUES ({assignmentId}, {changaId}, {"worker-id"}, {DateTimeOffset.UtcNow})");
+                    $"INSERT INTO [Changas] ([Id], [Description], [Reward], [Zone], [ExactAddress], [MaterialsNeeded], [AssignmentMode], [Status], [AuthorId], [IsSample], [CreatedAt]) VALUES ({changaId}, {"Ayudar a organizar libros en una biblioteca pequeña."}, {12000}, {"Centro"}, {"Dirección ficticia 123"}, {false}, {"FirstCome"}, {"Assigned"}, {"requester-id"}, {false}, {DateTimeOffset.UtcNow})");
+                                    await context.Database.ExecuteSqlInterpolatedAsync(
+                                        $"INSERT INTO [ChangaAssignment] ([Id], [ChangaId], [WorkerId], [AssignedAt]) VALUES ({assignmentId}, {changaId}, {"worker-id"}, {DateTimeOffset.UtcNow})");
 
-                await context.Database.MigrateAsync();
-                context.ChangeTracker.Clear();
-                var assignment = await context.Set<ChangaAssignment>().SingleAsync(item => item.Id == assignmentId);
-                Assert.Equal(PhoneConsentStatus.Pending, assignment.RequesterPhoneConsent);
-                Assert.Null(assignment.RequesterPhone);
+                                    await context.Database.MigrateAsync();
+                                    context.ChangeTracker.Clear();
+                                    var assignment = await context.Set<ChangaAssignment>().SingleAsync(item => item.Id == assignmentId);
+                                    Assert.Equal(PhoneConsentStatus.Pending, assignment.RequesterPhoneConsent);
+                                    Assert.Null(assignment.RequesterPhone);
                 Assert.Equal(PhoneConsentStatus.Pending, assignment.WorkerPhoneConsent);
                 Assert.Null(assignment.WorkerPhone);
             }
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
+    public async Task Completion_transition_persists_fields_and_allows_only_one_competing_response()
+    {
+        var options = CreateOptions($"ChangaCompletionRace_{Guid.NewGuid():N}");
+        var changaId = Guid.NewGuid();
+        var now = DateTimeOffset.Parse("2026-10-25T15:00:00Z");
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                var store = new ChangaStore(context);
+                await store.AddAsync(new Changa
+                {
+                    Id = changaId,
+                    Description = "Completar y confirmar una changa de prueba.",
+                    CategoryId = "limpieza-domestica",
+                    Reward = 1000,
+                    Zone = "Centro",
+                    ExactAddress = "dirección ficticia 123",
+                    MaterialsNeeded = false,
+                    AssignmentMode = AssignmentMode.FirstCome,
+                    Status = ChangaStatus.Available,
+                    AuthorId = "requester-id",
+                    CreatedAt = now
+                });
+                Assert.Equal(ChangaTakePersistenceResult.Assigned, await store.TakeAsync(changaId, "worker-id"));
+                Assert.Equal(ChangaCompletionTransitionResult.Updated, await store.TransitionCompletionAsync(
+                    changaId, ChangaStatus.Assigned, ChangaStatus.PendingResponse,
+                    requestedAt: now, deadline: now.AddMinutes(20)));
+                Assert.Equal(ChangaCompletionTransitionResult.StateChanged, await store.TransitionCompletionAsync(
+                    changaId, ChangaStatus.PendingResponse, ChangaStatus.Confirmed, respondedAt: now.AddMinutes(20)));
+            }
+
+            var confirmTask = Task.Run(async () =>
+            {
+                await using var context = new ApplicationDbContext(options);
+                return await new ChangaStore(context).TransitionCompletionAsync(
+                    changaId, ChangaStatus.PendingResponse, ChangaStatus.Confirmed, respondedAt: now.AddMinutes(1));
+            });
+            var rejectTask = Task.Run(async () =>
+            {
+                await using var context = new ApplicationDbContext(options);
+                return await new ChangaStore(context).TransitionCompletionAsync(
+                    changaId, ChangaStatus.PendingResponse, ChangaStatus.CompletionReview,
+                    respondedAt: now.AddMinutes(1), reviewCause: "rejected");
+            });
+            var results = await Task.WhenAll(confirmTask, rejectTask);
+
+            Assert.Single(results, result => result == ChangaCompletionTransitionResult.Updated);
+            Assert.Single(results, result => result == ChangaCompletionTransitionResult.StateChanged);
+            await using var readContext = new ApplicationDbContext(options);
+            var changa = await readContext.Changas.Include(item => item.Assignment).SingleAsync(item => item.Id == changaId);
+            Assert.Contains(changa.Status, new[] { ChangaStatus.Confirmed, ChangaStatus.CompletionReview });
+            Assert.Equal(now, changa.Assignment!.CompletionRequestedAt);
+            Assert.Equal(now.AddMinutes(20), changa.Assignment.CompletionDeadline);
+            Assert.Equal("worker-id", changa.Assignment.WorkerId);
+            Assert.Equal(
+                changa.Status == ChangaStatus.CompletionReview ? "rejected" : null,
+                changa.Assignment.CompletionReviewCause);
+            Assert.NotNull(changa.Assignment.CompletionRespondedAt);
         }
         finally
         {

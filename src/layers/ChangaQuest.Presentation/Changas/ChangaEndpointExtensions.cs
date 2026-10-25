@@ -40,6 +40,30 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapGet("/{id:guid}/completion", GetCompletionAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/completion/mark-done", MarkDoneAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/completion/confirm", ConfirmCompletionAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/completion/reject", RejectCompletionAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
         changas.MapGet("/{id:guid}/coordination", GetCoordinationAsync)
             .Produces<ChangaCoordinationView>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -168,6 +192,48 @@ public static class ChangaEndpointExtensions
             StatusCodes.Status403Forbidden,
             "Cuenta no habilitada",
             "Solo las cuentas adultas con correo verificado pueden consultar changas.")
+    };
+
+    private static async Task<IResult> GetCompletionAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.GetCompletionAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> MarkDoneAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.MarkDoneAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> ConfirmCompletionAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.ConfirmCompletionAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> RejectCompletionAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.RejectCompletionAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static IResult CompletionResult(ChangaManagerResult result) => result.Status switch
+    {
+        ChangaManagerStatus.Success => Results.Ok(result.Completion),
+        ChangaManagerStatus.Unauthenticated => Problem(
+            StatusCodes.Status401Unauthorized, "Sesi\u00f3n no iniciada", "Inici\u00e1 sesi\u00f3n para consultar la finalizaci\u00f3n."),
+        ChangaManagerStatus.CompletionForbidden => Problem(
+            StatusCodes.Status403Forbidden, "Acceso denegado", "Solo las partes asignadas pueden gestionar la finalizaci\u00f3n.", "completion_forbidden"),
+        ChangaManagerStatus.NotFound => Problem(
+            StatusCodes.Status404NotFound, "Changa no encontrada", "No existe una changa con ese identificador.", "changa_not_found"),
+        ChangaManagerStatus.NotAssigned => Problem(
+            StatusCodes.Status409Conflict, "Changa sin asignar", "La finalizaci\u00f3n requiere una asignaci\u00f3n activa.", "changa_not_assigned"),
+        ChangaManagerStatus.CompletionNotPending => Problem(
+            StatusCodes.Status409Conflict, "Finalizaci\u00f3n no pendiente", "La finalizaci\u00f3n ya no admite una respuesta.", "completion_not_pending"),
+        ChangaManagerStatus.CompletionInvalidState => Problem(
+            StatusCodes.Status409Conflict, "Estado incompatible", "La changa no está en un estado que permita marcarla como terminada.", "completion_invalid_state"),
+        _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo completar la operaci\u00f3n.")
     };
 
     private static async Task<IResult> GetCoordinationAsync(
