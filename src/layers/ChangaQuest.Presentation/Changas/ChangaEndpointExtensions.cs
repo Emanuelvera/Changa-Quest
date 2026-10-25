@@ -64,6 +64,12 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/payment-declaration", DeclarePaymentAsync)
+            .Produces<ChangaPaymentDeclarationView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
         changas.MapGet("/{id:guid}/coordination", GetCoordinationAsync)
             .Produces<ChangaCoordinationView>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -217,6 +223,42 @@ public static class ChangaEndpointExtensions
         ClaimsPrincipal principal,
         ChangaManager manager) => CompletionResult(
             await manager.RejectCompletionAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> DeclarePaymentAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.DeclarePaymentAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.PaymentDeclaration),
+            ChangaManagerStatus.Unauthenticated => Problem(
+                StatusCodes.Status401Unauthorized, "Sesión no iniciada",
+                "Iniciá sesión para declarar el pago.", "payment_declaration_unauthenticated"),
+            ChangaManagerStatus.PaymentDeclarationForbidden => Problem(
+                StatusCodes.Status403Forbidden, "Acceso denegado",
+                "Solo las partes asignadas pueden declarar el pago.",
+                "payment_declaration_forbidden"),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound, "Changa no encontrada",
+                "No existe una changa con ese identificador.", "changa_not_found"),
+            ChangaManagerStatus.NotAssigned => Problem(
+                StatusCodes.Status409Conflict, "Changa sin asignar",
+                "La declaración requiere una asignación activa.", "changa_not_assigned"),
+            ChangaManagerStatus.PaymentDeclarationAlreadyRecorded => Problem(
+                StatusCodes.Status409Conflict, "Declaración ya registrada",
+                "Tu declaración de pago ya fue registrada.",
+                "payment_declaration_already_recorded"),
+            ChangaManagerStatus.PaymentDeclarationUnavailable => Problem(
+                StatusCodes.Status409Conflict, "Declaración no disponible",
+                "La declaración solo está disponible después de confirmar la realización.",
+                "payment_declaration_unavailable"),
+            _ => Problem(StatusCodes.Status500InternalServerError, "Error interno",
+                "No se pudo completar la operación.")
+        };
+    }
 
     private static IResult CompletionResult(ChangaManagerResult result) => result.Status switch
     {

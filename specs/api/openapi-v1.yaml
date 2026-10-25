@@ -378,6 +378,43 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/payment-declaration:
+    post:
+      operationId: declareChangaPayment
+      summary: Declara el pago externo o su recepción, según el rol asignado
+      description: No procesa ni verifica pagos. La segunda declaración cierra la changa.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado de las declaraciones individuales.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaPaymentDeclaration"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código payment_declaration_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La declaración no está disponible o ya fue registrada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/changas/{id}/coordination:
     get:
       operationId: getChangaCoordination
@@ -613,7 +650,7 @@ components:
           enum: [requester, worker, null]
         status:
           type: string
-          enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review]
+          enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review, completed]
         reviewReason:
           type: string
           nullable: true
@@ -659,6 +696,22 @@ components:
           type: string
           nullable: true
           enum: [rejected, expired, null]
+    ChangaPaymentDeclaration:
+      type: object
+      required: [changaId, requesterPaid, workerReceived, closed]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        requesterPaid:
+          type: boolean
+          description: La persona solicitante declaró individualmente que pagó.
+        workerReceived:
+          type: boolean
+          description: La persona realizadora declaró individualmente que recibió.
+        closed:
+          type: boolean
+          description: Ambas declaraciones fueron registradas; no implica verificación del pago.
     ChangaCategory:
       type: object
       required: [id, name]

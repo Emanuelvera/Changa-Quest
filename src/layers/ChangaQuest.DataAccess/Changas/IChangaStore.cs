@@ -14,6 +14,8 @@ public interface IChangaStore
         Guid id, ChangaStatus expectedStatus, ChangaStatus newStatus,
         DateTimeOffset? requestedAt = null, DateTimeOffset? deadline = null,
         DateTimeOffset? respondedAt = null, string? reviewCause = null);
+    Task<ChangaPaymentDeclarationPersistenceResult> DeclarePaymentAsync(
+        Guid id, bool requester, DateTimeOffset declaredAt);
     Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
     Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
@@ -36,5 +38,12 @@ public enum ChangaTakePersistenceResult
 public enum ChangaCompletionTransitionResult
 {
     Updated,
+    StateChanged
+}
+
+public enum ChangaPaymentDeclarationPersistenceResult
+{
+    Updated,
+    AlreadyDeclared,
     StateChanged
 }

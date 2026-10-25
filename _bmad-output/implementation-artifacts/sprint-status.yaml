@@ -50,7 +50,7 @@ development_status:
   epic-2: in-progress
   2-1-confirmar-la-realización-dentro-del-plazo: review
   2-2-cancelar-una-changa-antes-de-su-asignación: backlog
-  2-3-declarar-por-separado-el-pago-externo: backlog
+  2-3-declarar-por-separado-el-pago-externo: review
   2-4-calificar-a-la-otra-parte-tras-el-cierre: backlog
   2-5-cancelar-una-changa-asignada-por-acuerdo-mutuo: backlog
   epic-2-retrospective: optional
