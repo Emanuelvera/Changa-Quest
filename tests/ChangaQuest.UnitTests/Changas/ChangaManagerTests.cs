@@ -289,6 +289,99 @@ public sealed class ChangaManagerTests
         Assert.Empty(outsiderList.Coordinations!);
     }
 
+    [Fact]
+    public async Task Worker_marks_completion_and_requester_confirms_without_closing_changa()
+    {
+        var clock = new TestTimeProvider(new DateTimeOffset(2026, 10, 25, 15, 0, 0, TimeSpan.Zero));
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true), clock);
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var marked = await manager.MarkDoneAsync("worker-id", changa.Id);
+        var confirmed = await manager.ConfirmCompletionAsync("author-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, marked.Status);
+        Assert.Equal("pending_response", marked.Completion!.Status);
+        Assert.Equal(clock.GetUtcNow(), marked.Completion.MarkedDoneAt);
+        Assert.Equal(clock.GetUtcNow().AddMinutes(20), marked.Completion.ResponseDeadline);
+        Assert.Equal(ChangaManagerStatus.Success, confirmed.Status);
+        Assert.Equal("confirmed", confirmed.Completion!.Status);
+        Assert.Equal(ChangaStatus.Confirmed, changa.Status);
+        Assert.NotNull(changa.Assignment);
+        Assert.Equal(clock.GetUtcNow(), changa.Assignment!.CompletionRespondedAt);
+    }
+
+    [Fact]
+    public async Task Requester_rejection_moves_completion_to_review_without_releasing_assignment()
+    {
+        var clock = new TestTimeProvider(DateTimeOffset.Parse("2026-10-25T15:00:00Z"));
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true), clock);
+        await manager.TakeAsync("worker-id", changa.Id);
+        await manager.MarkDoneAsync("worker-id", changa.Id);
+
+        var rejected = await manager.RejectCompletionAsync("author-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, rejected.Status);
+        Assert.Equal("completion_review", rejected.Completion!.Status);
+        Assert.Equal("rejected", rejected.Completion.ReviewCause);
+        Assert.Equal(ChangaStatus.CompletionReview, changa.Status);
+        Assert.Equal("worker-id", changa.Assignment!.WorkerId);
+    }
+
+    [Fact]
+    public async Task Completion_read_lazily_persists_expiration_and_late_action_conflicts()
+    {
+        var clock = new TestTimeProvider(DateTimeOffset.Parse("2026-10-25T15:00:00Z"));
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true), clock);
+        await manager.TakeAsync("worker-id", changa.Id);
+        await manager.MarkDoneAsync("worker-id", changa.Id);
+        clock.Advance(TimeSpan.FromMinutes(20));
+
+        var lateMark = await manager.MarkDoneAsync("worker-id", changa.Id);
+        var lateAction = await manager.ConfirmCompletionAsync("author-id", changa.Id);
+        var read = await manager.GetCompletionAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.CompletionInvalidState, lateMark.Status);
+        Assert.Equal(ChangaManagerStatus.CompletionNotPending, lateAction.Status);
+        Assert.Equal(ChangaStatus.CompletionReview, changa.Status);
+        Assert.Equal("expired", changa.Assignment!.CompletionReviewCause);
+        Assert.Equal("completion_review", read.Completion!.Status);
+        Assert.Equal("expired", read.Completion.ReviewCause);
+        Assert.Equal("worker-id", changa.Assignment.WorkerId);
+    }
+
+    [Fact]
+    public async Task Completion_checks_roles_assignment_and_unknown_ids()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Available;
+        Assert.Equal(ChangaManagerStatus.CompletionInvalidState, (await manager.MarkDoneAsync("worker-id", changa.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.CompletionForbidden, (await manager.MarkDoneAsync("author-id", changa.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.CompletionForbidden, (await manager.ConfirmCompletionAsync("worker-id", changa.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.CompletionForbidden, (await manager.RejectCompletionAsync("worker-id", changa.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.CompletionForbidden, (await manager.GetCompletionAsync("outsider-id", changa.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.NotFound, (await manager.GetCompletionAsync("author-id", Guid.NewGuid())).Status);
+        var unassigned = AvailableChanga("author-id");
+        store.Changas.Add(unassigned);
+        Assert.Equal(ChangaManagerStatus.NotAssigned, (await manager.GetCompletionAsync("author-id", unassigned.Id)).Status);
+    }
+
+    private sealed class TestTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset current = now;
+        public override DateTimeOffset GetUtcNow() => current;
+        public void Advance(TimeSpan elapsed) => current += elapsed;
+    }
+
     private static Changa AvailableChanga(string authorId) => new()
     {
         Id = Guid.NewGuid(),
@@ -423,6 +516,25 @@ public sealed class ChangaManagerTests
         {
             Changas.AddRange(samples.Where(sample => Changas.All(existing => existing.Id != sample.Id)));
             return Task.CompletedTask;
+        }
+
+        public Task<ChangaCompletionTransitionResult> TransitionCompletionAsync(
+            Guid id, ChangaStatus expectedStatus, ChangaStatus newStatus,
+            DateTimeOffset? requestedAt = null, DateTimeOffset? deadline = null,
+            DateTimeOffset? respondedAt = null, string? reviewCause = null)
+        {
+            var changa = Changas.SingleOrDefault(item => item.Id == id);
+            if (changa?.Assignment is null || changa.Status != expectedStatus ||
+                (respondedAt is { } at && changa.Assignment.CompletionDeadline is { } limit && limit <= at))
+            {
+                return Task.FromResult(ChangaCompletionTransitionResult.StateChanged);
+            }
+            changa.Status = newStatus;
+            changa.Assignment.CompletionRequestedAt = requestedAt ?? changa.Assignment.CompletionRequestedAt;
+            changa.Assignment.CompletionDeadline = deadline ?? changa.Assignment.CompletionDeadline;
+            changa.Assignment.CompletionRespondedAt = respondedAt ?? changa.Assignment.CompletionRespondedAt;
+            changa.Assignment.CompletionReviewCause = reviewCause;
+            return Task.FromResult(ChangaCompletionTransitionResult.Updated);
         }
 
         public Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone)

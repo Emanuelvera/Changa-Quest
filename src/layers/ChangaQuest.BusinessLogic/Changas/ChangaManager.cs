@@ -6,7 +6,8 @@ namespace ChangaQuest.BusinessLogic.Changas;
 
 public sealed class ChangaManager(
     IChangaStore changaStore,
-    IAccountIdentityStore accountStore)
+    IAccountIdentityStore accountStore,
+    TimeProvider? timeProvider = null)
 {
     public async Task<ChangaManagerResult> CreateAsync(string? userId, ChangaCreateCommand command)
     {
@@ -348,6 +349,141 @@ public sealed class ChangaManager(
         return new ChangaManagerResult(ChangaManagerStatus.Success, Coordinations: coordinations);
     }
 
+    public async Task<ChangaManagerResult> GetCompletionAsync(string? userId, Guid id)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.CompletionForbidden);
+
+        changa = await ApplyExpirationAsync(changa);
+        return new(ChangaManagerStatus.Success, Completion: ProjectCompletion(changa, role.Value));
+    }
+
+    public async Task<ChangaManagerResult> MarkDoneAsync(string? userId, Guid id)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        if (GetCoordinationRole(changa, userId!) != ChangaCoordinationRole.Worker)
+        {
+            return new(ChangaManagerStatus.CompletionForbidden);
+        }
+
+        changa = await ApplyExpirationAsync(changa);
+        if (changa.Status != ChangaStatus.Assigned)
+        {
+            return new(ChangaManagerStatus.CompletionInvalidState);
+        }
+
+        var now = UtcNow;
+        var deadline = now.AddMinutes(ChangaPolicy.CompletionResponseMinutes);
+        var transition = await changaStore.TransitionCompletionAsync(
+            id, ChangaStatus.Assigned, ChangaStatus.PendingResponse,
+            requestedAt: now, deadline: deadline);
+        if (transition != ChangaCompletionTransitionResult.Updated)
+        {
+            return new(ChangaManagerStatus.CompletionInvalidState);
+        }
+
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return new(ChangaManagerStatus.Success,
+            Completion: ProjectCompletion(changa, ChangaCoordinationRole.Worker));
+    }
+
+    public Task<ChangaManagerResult> ConfirmCompletionAsync(string? userId, Guid id) =>
+        RespondToCompletionAsync(userId, id, confirm: true);
+
+    public Task<ChangaManagerResult> RejectCompletionAsync(string? userId, Guid id) =>
+        RespondToCompletionAsync(userId, id, confirm: false);
+
+    private async Task<ChangaManagerResult> RespondToCompletionAsync(string? userId, Guid id, bool confirm)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        if (GetCoordinationRole(changa, userId!) != ChangaCoordinationRole.Requester)
+        {
+            return new(ChangaManagerStatus.CompletionForbidden);
+        }
+
+        changa = await ApplyExpirationAsync(changa);
+        if (changa.Status != ChangaStatus.PendingResponse)
+        {
+            return new(ChangaManagerStatus.CompletionNotPending);
+        }
+
+        var targetStatus = confirm ? ChangaStatus.Confirmed : ChangaStatus.CompletionReview;
+        var transition = await changaStore.TransitionCompletionAsync(
+            id,
+            ChangaStatus.PendingResponse,
+            targetStatus,
+            respondedAt: UtcNow,
+            reviewCause: confirm ? null : "rejected");
+        if (transition != ChangaCompletionTransitionResult.Updated)
+        {
+            return new(ChangaManagerStatus.CompletionNotPending);
+        }
+
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return new(ChangaManagerStatus.Success,
+            Completion: ProjectCompletion(changa, ChangaCoordinationRole.Requester));
+    }
+
+    private async Task<Changa> ApplyExpirationAsync(Changa changa)
+    {
+        if (changa.Status == ChangaStatus.PendingResponse &&
+            changa.Assignment?.CompletionDeadline is { } deadline && UtcNow >= deadline)
+        {
+            await changaStore.TransitionCompletionAsync(
+                changa.Id,
+                ChangaStatus.PendingResponse,
+                ChangaStatus.CompletionReview,
+                reviewCause: "expired");
+            return await changaStore.FindByIdAsync(changa.Id) ?? changa;
+        }
+
+        return changa;
+    }
+
+    private async Task<ChangaManagerResult?> CheckCompletionAccessAsync(string? userId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access?.Status == ChangaManagerStatus.Forbidden)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.CompletionForbidden);
+        }
+        return access;
+    }
+
+    private DateTimeOffset UtcNow => (timeProvider ?? TimeProvider.System).GetUtcNow();
+
+    private static ChangaCompletionView ProjectCompletion(Changa changa, ChangaCoordinationRole role) => new(
+        changa.Id,
+        changa.Description,
+        role == ChangaCoordinationRole.Requester ? "requester" : "worker",
+        changa.Status switch
+        {
+            ChangaStatus.Assigned => "assigned",
+            ChangaStatus.PendingResponse => "pending_response",
+            ChangaStatus.Confirmed => "confirmed",
+            ChangaStatus.CompletionReview => "completion_review",
+            _ => "assigned"
+        },
+        changa.Assignment?.CompletionRequestedAt,
+        changa.Assignment?.CompletionDeadline,
+        changa.Assignment?.CompletionReviewCause);
+
     private static ChangaCoordinationRole? GetCoordinationRole(Changa changa, string userId)
     {
         if (changa.AuthorId == userId)
@@ -473,6 +609,9 @@ public sealed class ChangaManager(
             ChangaStatus.Cancelled => "cancelled",
             ChangaStatus.PendingReview => "pending_review",
             ChangaStatus.Rejected => "rejected",
+            ChangaStatus.PendingResponse => "pending_response",
+            ChangaStatus.Confirmed => "confirmed",
+            ChangaStatus.CompletionReview => "completion_review",
             _ => "available"
         },
         changa.ReviewReason,
@@ -610,7 +749,10 @@ public enum ChangaManagerStatus
     NotAssigned,
     InvalidPhone,
     InvalidCategory,
-    InvalidReview
+    InvalidReview,
+    CompletionForbidden,
+    CompletionNotPending,
+    CompletionInvalidState
 }
 
 public enum ChangaCoordinationRole
@@ -627,9 +769,19 @@ public sealed record ChangaManagerResult(
     IReadOnlyDictionary<string, string[]>? Errors = null,
     ChangaAssignmentView? Assignment = null,
     ChangaCoordinationView? Coordination = null,
-    IReadOnlyList<ChangaCoordinationView>? Coordinations = null);
+    IReadOnlyList<ChangaCoordinationView>? Coordinations = null,
+    ChangaCompletionView? Completion = null);
 
 public sealed record ChangaAssignmentView(Guid Id, DateTimeOffset AssignedAt);
+
+public sealed record ChangaCompletionView(
+    Guid ChangaId,
+    string Description,
+    string Role,
+    string Status,
+    DateTimeOffset? MarkedDoneAt,
+    DateTimeOffset? ResponseDeadline,
+    string? ReviewCause);
 
 public sealed record ChangaCoordinationView(
     Guid ChangaId,

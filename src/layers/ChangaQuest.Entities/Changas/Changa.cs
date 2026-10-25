@@ -27,7 +27,10 @@ public enum ChangaStatus
     Assigned,
     Cancelled,
     PendingReview,
-    Rejected
+    Rejected,
+    PendingResponse,
+    Confirmed,
+    CompletionReview
 }
 
 public sealed class ChangaCategory
@@ -74,6 +77,7 @@ public static class ChangaPolicy
     public const int MinimumPhoneDigits = 8;
     public const int MaximumPhoneDigits = 15;
     public const int MaximumPhoneLength = 32;
+    public const int CompletionResponseMinutes = 20;
     public const double DefaultSearchLatitude = -31.4167;
     public const double DefaultSearchLongitude = -64.1833;
 }
@@ -95,5 +99,9 @@ public sealed class ChangaAssignment
     public string? RequesterPhone { get; set; }
     public PhoneConsentStatus WorkerPhoneConsent { get; set; }
     public string? WorkerPhone { get; set; }
+    public DateTimeOffset? CompletionRequestedAt { get; set; }
+    public DateTimeOffset? CompletionDeadline { get; set; }
+    public DateTimeOffset? CompletionRespondedAt { get; set; }
+    public string? CompletionReviewCause { get; set; }
     public Changa Changa { get; set; } = null!;
 }

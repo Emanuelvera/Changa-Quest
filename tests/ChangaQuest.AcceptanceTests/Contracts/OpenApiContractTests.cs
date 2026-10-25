@@ -102,6 +102,25 @@ public class OpenApiContractTests
         Assert.Contains("la direcci\u00f3n exacta siempre es null", coordinationList, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Completion_contract_describes_private_participant_endpoints_and_statuses()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+
+        Assert.Contains("/api/v1/changas/{id}/completion:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/{id}/completion/mark-done:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/{id}/completion/confirm:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/{id}/completion/reject:", contract, StringComparison.Ordinal);
+        Assert.Contains("ChangaCompletion:", contract, StringComparison.Ordinal);
+        Assert.Contains("pending_response", contract, StringComparison.Ordinal);
+        Assert.Contains("completion_review", contract, StringComparison.Ordinal);
+        Assert.Contains("completion_forbidden", contract, StringComparison.Ordinal);
+        Assert.Contains("completion_not_pending", contract, StringComparison.Ordinal);
+        Assert.Contains("completion_invalid_state", contract, StringComparison.Ordinal);
+        Assert.Contains("enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review]", contract, StringComparison.Ordinal);
+    }
+
     private static string ExtractOperation(string document, string start, string end)
     {
         var startIndex = document.IndexOf(start, StringComparison.Ordinal);
