@@ -1,3 +1,3 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-calificar-a-la-otra-parte-tras-el-cierre.md`
-  summary: Validar calificaciones end-to-end después del cierre normal de Story 2.3.
-  evidence: Las pruebas de Story 2.4 preparan el estado Closed directamente porque el flujo real de cierre aún está pendiente y su implementación fue excluida del alcance acordado.
+  summary: Resuelto al integrar `dev`: el estado `Closed` se unificó con `Completed` (Story 2.3) y se agregó la prueba `Rating_opens_only_after_real_close_through_completion_and_both_payment_declarations`, que recorre el flujo real hasta calificar.
+  evidence: Ya no se fuerza el estado en esa prueba; las demás de calificación siguen preparando `Completed` directamente por velocidad.

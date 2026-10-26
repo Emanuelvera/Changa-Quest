@@ -7,13 +7,17 @@ public interface IChangaStore
     Task AddAsync(Changa changa);
     Task<IReadOnlyList<Changa>> ListAvailableAsync();
     Task<IReadOnlyList<Changa>> ListAvailableForSearchAsync();
+    Task<IReadOnlyList<Changa>> ListMyUnassignedAsync(string authorId);
     Task<Changa?> FindAvailableByIdAsync(Guid id);
     Task<Changa?> FindByIdAsync(Guid id);
     Task<ChangaTakePersistenceResult> TakeAsync(Guid id, string workerId);
+    Task<ChangaCancelPersistenceResult> CancelAsync(Guid id);
     Task<ChangaCompletionTransitionResult> TransitionCompletionAsync(
         Guid id, ChangaStatus expectedStatus, ChangaStatus newStatus,
         DateTimeOffset? requestedAt = null, DateTimeOffset? deadline = null,
         DateTimeOffset? respondedAt = null, string? reviewCause = null);
+    Task<ChangaPaymentDeclarationPersistenceResult> DeclarePaymentAsync(
+        Guid id, bool requester, DateTimeOffset declaredAt);
     Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
     Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
     Task<bool> HasRatingAsync(Guid changaId, string raterId);
@@ -36,6 +40,14 @@ public enum ChangaTakePersistenceResult
     NotFound
 }
 
+public enum ChangaCancelPersistenceResult
+{
+    Cancelled,
+    AlreadyAssigned,
+    NotAvailable,
+    NotFound
+}
+
 public enum ChangaCompletionTransitionResult
 {
     Updated,
@@ -49,3 +61,10 @@ public enum ChangaRatingPersistenceResult
 }
 
 public sealed record ChangaRatingAggregate(double? AverageRating, int RatingCount);
+
+public enum ChangaPaymentDeclarationPersistenceResult
+{
+    Updated,
+    AlreadyDeclared,
+    StateChanged
+}

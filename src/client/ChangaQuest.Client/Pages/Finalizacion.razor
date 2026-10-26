@@ -62,6 +62,22 @@
             else if (Completion.Status == "confirmed")
             {
                 <p class="status" role="status">La realizaci&oacute;n qued&oacute; confirmada. La changa sigue abierta; este paso no la cierra.</p>
+                @if (Payment is null || (Completion.Role == "requester" ? !Payment.RequesterPaid : !Payment.WorkerReceived))
+                {
+                    <p>El pago se declara por separado. La aplicaci&oacute;n no procesa ni verifica pagos.</p>
+                    <button class="button" type="button" @onclick="DeclarePaymentAsync" disabled="@Saving">@(Saving ? "Guardando..." : "Declarar pago")</button>
+                }
+                else
+                {
+                    <p class="status" role="status">
+                        Declaraciones registradas: solicitante @(Payment.RequesterPaid ? "sí" : "no"),
+                        realizadora @(Payment.WorkerReceived ? "sí" : "no").
+                    </p>
+                }
+            }
+            else if (Completion.Status == "completed")
+            {
+                <p class="status" role="status">Ambas personas registraron su declaración. La changa quedó cerrada; esto no verifica el pago.</p>
             }
             @if (!string.IsNullOrWhiteSpace(Success))
             {
@@ -79,6 +95,7 @@
     [Parameter] public Guid Id { get; set; }
 
     private CompletionView? Completion;
+    private PaymentDeclarationView? Payment;
     private bool Loading = true;
     private bool Saving;
     private string? Error;
@@ -125,6 +142,51 @@
     private Task RespondAsync(bool confirm) => SendActionAsync(
         confirm ? "confirm" : "reject",
         confirm ? "La realizaci&oacute;n qued&oacute; confirmada; la changa sigue abierta." : "La changa qued&oacute; pendiente de revisi&oacute;n, sin cierre ni reasignaci&oacute;n.");
+
+    private async Task DeclarePaymentAsync()
+    {
+        Saving = true;
+        ActionError = null;
+        Success = null;
+        try
+        {
+            using var response = await Http.PostAsync($"/api/v1/changas/{Id}/payment-declaration", null);
+            if (!response.IsSuccessStatusCode)
+            {
+                ActionError = await ReadErrorAsync(response, "No se pudo registrar la declaración. Intentá de nuevo.");
+                return;
+            }
+            Payment = await response.Content.ReadFromJsonAsync<PaymentDeclarationView>();
+            if (Payment is null)
+            {
+                ActionError = "No se pudo leer la declaración. Intentá cargar el estado de nuevo.";
+                return;
+            }
+            Success = Payment.Closed
+                ? "Ambas declaraciones fueron registradas y la changa quedó cerrada."
+                : "Registramos tu declaración; falta la declaración de la otra persona.";
+            if (Payment.Closed)
+            {
+                await LoadAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+            ActionError = "No se pudo conectar con el servidor. No confirmamos el cambio; podés volver a intentarlo.";
+        }
+        catch (OperationCanceledException)
+        {
+            ActionError = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            ActionError = "No se pudo leer la respuesta. Intentá cargar el estado de nuevo.";
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
 
     private async Task SendActionAsync(string action, string successMessage)
     {
@@ -193,4 +255,10 @@
         DateTimeOffset? MarkedDoneAt,
         DateTimeOffset? ResponseDeadline,
         string? ReviewCause);
+
+    private sealed record PaymentDeclarationView(
+        Guid ChangaId,
+        bool RequesterPaid,
+        bool WorkerReceived,
+        bool Closed);
 }

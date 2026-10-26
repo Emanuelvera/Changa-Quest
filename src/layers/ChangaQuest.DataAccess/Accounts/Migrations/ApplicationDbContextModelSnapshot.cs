@@ -198,6 +198,9 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
 
+                    b.Property<DateTimeOffset?>("RequesterPaymentDeclaredAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("RequesterPhone")
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
@@ -211,6 +214,9 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         .IsRequired()
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset?>("WorkerPaymentDeclaredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("WorkerPhone")
                         .HasMaxLength(32)

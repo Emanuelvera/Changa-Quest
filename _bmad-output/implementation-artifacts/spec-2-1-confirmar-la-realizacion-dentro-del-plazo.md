@@ -2,7 +2,7 @@
 title: "Story 2.1 — Confirmar la realización dentro del plazo"
 type: feature
 created: 2026-10-25
-status: in-review
+status: done
 route: dispatch
 review_loop_iteration: 1
 baseline_commit: c258311ebba6ad07d069f87f7e6108d7749029c8

@@ -13,11 +13,17 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var client = factory.CreateClient();
         using var publish = await client.PostAsJsonAsync("/api/v1/changas", ValidRequest());
         using var board = await client.GetAsync("/api/v1/changas");
+        using var mine = await client.GetAsync("/api/v1/changas/mine");
+        using var cancel = await client.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, publish.StatusCode);
         Assert.Equal("application/problem+json", publish.Content.Headers.ContentType?.MediaType);
         Assert.Equal(HttpStatusCode.Unauthorized, board.StatusCode);
         Assert.Equal("application/problem+json", board.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(HttpStatusCode.Unauthorized, mine.StatusCode);
+        Assert.Equal("application/problem+json", mine.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(HttpStatusCode.Unauthorized, cancel.StatusCode);
+        Assert.Equal("application/problem+json", cancel.Content.Headers.ContentType?.MediaType);
     }
 
     [Fact]
@@ -50,8 +56,12 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
 
         using var board = await client.GetAsync("/api/v1/changas");
         using var categories = await client.GetAsync("/api/v1/changas/categories");
+        using var mine = await client.GetAsync("/api/v1/changas/mine");
+        using var cancel = await client.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
         Assert.Equal(HttpStatusCode.Forbidden, board.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, categories.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, mine.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, cancel.StatusCode);
         Assert.Equal("application/problem+json", board.Content.Headers.ContentType?.MediaType);
     }
 
@@ -259,6 +269,80 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
     }
 
     [Fact]
+    public async Task Author_lists_and_cancels_only_own_available_publication_without_private_data()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var other = await CreateVerifiedClientAsync();
+        var address = $"Calle privada {Guid.NewGuid():N}";
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest(address));
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+
+        using var mine = await author.GetAsync("/api/v1/changas/mine");
+        var mineContent = await mine.Content.ReadAsStringAsync();
+        using var mineJson = JsonDocument.Parse(mineContent);
+        Assert.Equal(HttpStatusCode.OK, mine.StatusCode);
+        Assert.Contains(mineJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
+        Assert.DoesNotContain(address, mineContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("exactAddress", mineContent, StringComparison.OrdinalIgnoreCase);
+        using var otherMine = await other.GetAsync("/api/v1/changas/mine");
+        using var otherMineJson = await JsonDocument.ParseAsync(await otherMine.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(otherMineJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
+
+        using var forbidden = await other.PostAsync($"/api/v1/changas/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        using var forbiddenJson = await JsonDocument.ParseAsync(await forbidden.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_cancel_forbidden", forbiddenJson.RootElement.GetProperty("code").GetString());
+
+        using var cancelled = await author.PostAsync($"/api/v1/changas/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        var cancelledContent = await cancelled.Content.ReadAsStringAsync();
+        using var cancelledJson = JsonDocument.Parse(cancelledContent);
+        Assert.Equal("cancelled", cancelledJson.RootElement.GetProperty("status").GetString());
+        Assert.DoesNotContain(address, cancelledContent, StringComparison.Ordinal);
+
+        using var board = await author.GetAsync("/api/v1/changas");
+        using var boardJson = await JsonDocument.ParseAsync(await board.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(boardJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
+        using var mineAfter = await author.GetAsync("/api/v1/changas/mine");
+        using var mineAfterJson = await JsonDocument.ParseAsync(await mineAfter.Content.ReadAsStreamAsync());
+        Assert.Contains(mineAfterJson.RootElement.EnumerateArray(), item =>
+            item.GetProperty("id").GetGuid() == id && item.GetProperty("status").GetString() == "cancelled");
+    }
+
+    [Fact]
+    public async Task Author_cannot_cancel_an_assigned_changa_and_unknown_id_is_not_found()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+
+        using var conflict = await author.PostAsync($"/api/v1/changas/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        using var conflictJson = await JsonDocument.ParseAsync(await conflict.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_already_assigned", conflictJson.RootElement.GetProperty("code").GetString());
+
+        using var missing = await author.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        using var missingJson = await JsonDocument.ParseAsync(await missing.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_not_found", missingJson.RootElement.GetProperty("code").GetString());
+
+        using var pending = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var pendingJson = await JsonDocument.ParseAsync(await pending.Content.ReadAsStreamAsync());
+        var pendingId = pendingJson.RootElement.GetProperty("id").GetGuid();
+        using var notAvailable = await author.PostAsync($"/api/v1/changas/{pendingId}/cancel", null);
+        Assert.Equal(HttpStatusCode.Conflict, notAvailable.StatusCode);
+        using var notAvailableJson = await JsonDocument.ParseAsync(await notAvailable.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_not_available", notAvailableJson.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task Author_cannot_take_own_changa_and_other_worker_gets_stable_conflict()
     {
         using var author = await CreateVerifiedClientAsync();
@@ -296,6 +380,10 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
             ValidRequest(farAddress) with { latitude = -31.5000, longitude = -64.3000 });
         Assert.Equal(HttpStatusCode.Created, nearby.StatusCode);
         Assert.Equal(HttpStatusCode.Created, far.StatusCode);
+        using var nearbyJson = await JsonDocument.ParseAsync(await nearby.Content.ReadAsStreamAsync());
+        using var farJson = await JsonDocument.ParseAsync(await far.Content.ReadAsStreamAsync());
+        await ApproveAsync(nearbyJson.RootElement.GetProperty("id").GetGuid());
+        await ApproveAsync(farJson.RootElement.GetProperty("id").GetGuid());
 
         using var response = await client.GetAsync(
             "/api/v1/changas?latitude=-31.4167&longitude=-64.1833&radiusKm=1");
@@ -604,7 +692,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
                 Assert.Equal("rating_not_available", notClosedJson.RootElement.GetProperty("code").GetString());
             }
 
-            await SetChangaStatusAsync(id, "Closed");
+            await SetChangaStatusAsync(id, "Completed");
             using var eligible = await author.GetAsync($"/api/v1/changas/{id}/rating");
             using var eligibleJson = await JsonDocument.ParseAsync(await eligible.Content.ReadAsStreamAsync());
             Assert.True(eligibleJson.RootElement.GetProperty("canRate").GetBoolean());
@@ -678,6 +766,38 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var authorProfileJson = await JsonDocument.ParseAsync(await authorProfile.Content.ReadAsStreamAsync());
         Assert.Equal(3, authorProfileJson.RootElement.GetProperty("averageRating").GetDouble());
         Assert.Equal(1, authorProfileJson.RootElement.GetProperty("ratingCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Rating_opens_only_after_real_close_through_completion_and_both_payment_declarations()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+        using var marked = await worker.PostAsync($"/api/v1/changas/{id}/completion/mark-done", null);
+        Assert.Equal(HttpStatusCode.OK, marked.StatusCode);
+        using var confirmed = await author.PostAsync($"/api/v1/changas/{id}/completion/confirm", null);
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+
+        using var afterConfirm = await author.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 5 });
+        Assert.Equal(HttpStatusCode.Conflict, afterConfirm.StatusCode);
+
+        using var paid = await author.PostAsync($"/api/v1/changas/{id}/payment-declaration", null);
+        Assert.Equal(HttpStatusCode.OK, paid.StatusCode);
+        using var afterOneDeclaration = await worker.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 5 });
+        Assert.Equal(HttpStatusCode.Conflict, afterOneDeclaration.StatusCode);
+
+        using var received = await worker.PostAsync($"/api/v1/changas/{id}/payment-declaration", null);
+        Assert.Equal(HttpStatusCode.OK, received.StatusCode);
+        using var rated = await worker.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 5 });
+        Assert.Equal(HttpStatusCode.Created, rated.StatusCode);
+        using var duplicate = await worker.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 1 });
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
     }
 
     [Fact]

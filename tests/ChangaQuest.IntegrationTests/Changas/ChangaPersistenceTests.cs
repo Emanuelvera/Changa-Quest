@@ -1,4 +1,4 @@
-﻿using ChangaQuest.DataAccess.Accounts;
+using ChangaQuest.DataAccess.Accounts;
 using ChangaQuest.DataAccess.Changas;
 using ChangaQuest.Entities.Changas;
 using Microsoft.EntityFrameworkCore;
@@ -242,6 +242,109 @@ public class ChangaPersistenceTests
     }
 
     [Fact]
+    public async Task Cancellation_persists_cancelled_status_and_excludes_changa_from_available_results()
+    {
+        var databaseName = $"ChangaQuestCancellation_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                await new ChangaStore(context).AddAsync(new Changa
+                {
+                    Id = changaId,
+                    Description = "Pintar una pared interior de una habitación.",
+                    Reward = 15000,
+                    Zone = "General Paz",
+                    ExactAddress = "Dirección privada 987",
+                    MaterialsNeeded = false,
+                    AssignmentMode = AssignmentMode.FirstCome,
+                    Status = ChangaStatus.Available,
+                    AuthorId = "author-id",
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            await using (var context = new ApplicationDbContext(options))
+            {
+                Assert.Equal(
+                    ChangaCancelPersistenceResult.Cancelled,
+                    await new ChangaStore(context).CancelAsync(changaId));
+            }
+
+            await using (var context = new ApplicationDbContext(options))
+            {
+                var store = new ChangaStore(context);
+                Assert.Equal(ChangaStatus.Cancelled, (await store.FindByIdAsync(changaId))!.Status);
+                Assert.DoesNotContain(await store.ListAvailableAsync(), item => item.Id == changaId);
+                Assert.Contains(await store.ListMyUnassignedAsync("author-id"), item => item.Id == changaId);
+                Assert.Null((await store.ListMyUnassignedAsync("author-id")).Single().Assignment);
+            }
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_take_and_cancel_persist_exactly_one_transition()
+    {
+        var databaseName = $"ChangaQuestTakeCancel_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                await new ChangaStore(context).AddAsync(new Changa
+                {
+                    Id = changaId,
+                    Description = "Pintar una pared interior de una habitación.",
+                    Reward = 15000,
+                    Zone = "General Paz",
+                    ExactAddress = "Dirección privada 987",
+                    MaterialsNeeded = false,
+                    AssignmentMode = AssignmentMode.FirstCome,
+                    Status = ChangaStatus.Available,
+                    AuthorId = "author-id",
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            var take = Task.Run(async () =>
+            {
+                await using var context = new ApplicationDbContext(options);
+                return await new ChangaStore(context).TakeAsync(changaId, "worker-id");
+            });
+            var cancel = Task.Run(async () =>
+            {
+                await using var context = new ApplicationDbContext(options);
+                return await new ChangaStore(context).CancelAsync(changaId);
+            });
+
+            await Task.WhenAll(take, cancel);
+            var takeResult = await take;
+            var cancelResult = await cancel;
+
+            Assert.True(
+                takeResult == ChangaTakePersistenceResult.Assigned && cancelResult == ChangaCancelPersistenceResult.AlreadyAssigned ||
+                takeResult == ChangaTakePersistenceResult.NotAvailable && cancelResult == ChangaCancelPersistenceResult.Cancelled);
+            await using var verification = new ApplicationDbContext(options);
+            var persisted = await verification.Changas.Include(item => item.Assignment).SingleAsync(item => item.Id == changaId);
+            Assert.False(persisted.Status == ChangaStatus.Cancelled && persisted.Assignment is not null);
+            Assert.Equal(persisted.Status == ChangaStatus.Assigned, persisted.Assignment is not null);
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
     public async Task Add_coordination_consent_migration_persists_each_party_decision_and_discards_declined_phone()
     {
         var databaseName = $"ChangaQuestConsent_{Guid.NewGuid():N}";
@@ -415,7 +518,7 @@ public class ChangaPersistenceTests
                         ChangaTakePersistenceResult.Assigned,
                         await store.TakeAsync(id, "worker-id"));
                     var changa = await store.FindByIdAsync(id);
-                    changa!.Status = ChangaStatus.Closed;
+                    changa!.Status = ChangaStatus.Completed;
                     await store.SaveAsync(changa);
                 }
             }

@@ -40,6 +40,14 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
     public Task<IReadOnlyList<Changa>> ListAvailableForSearchAsync() =>
         ListAvailableAsync();
 
+    public async Task<IReadOnlyList<Changa>> ListMyUnassignedAsync(string authorId) =>
+        await context.Changas
+            .AsNoTracking()
+            .Where(changa => changa.AuthorId == authorId &&
+                !context.Set<ChangaAssignment>().Any(assignment => assignment.ChangaId == changa.Id))
+            .OrderByDescending(changa => changa.CreatedAt)
+            .ToArrayAsync();
+
     public Task<Changa?> FindAvailableByIdAsync(Guid id) =>
         context.Changas
             .AsNoTracking()
@@ -96,6 +104,43 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         return ChangaTakePersistenceResult.Assigned;
     }
 
+    public async Task<ChangaCancelPersistenceResult> CancelAsync(Guid id)
+    {
+        context.ChangeTracker.Clear();
+        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        var changa = await context.Changas
+            .FromSqlInterpolated(
+                $"SELECT * FROM [Changas] WITH (UPDLOCK, ROWLOCK) WHERE [Id] = {id}")
+            .SingleOrDefaultAsync();
+        if (changa is null)
+        {
+            return ChangaCancelPersistenceResult.NotFound;
+        }
+
+        var assignmentExists = await context.Set<ChangaAssignment>()
+            .AnyAsync(item => item.ChangaId == id);
+        if (assignmentExists)
+        {
+            return ChangaCancelPersistenceResult.AlreadyAssigned;
+        }
+
+        if (changa.Status != ChangaStatus.Available)
+        {
+            return ChangaCancelPersistenceResult.NotAvailable;
+        }
+
+        var updated = await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE [Changas] SET [Status] = N'Cancelled' WHERE [Id] = {id} AND [Status] = N'Available' AND NOT EXISTS (SELECT 1 FROM [ChangaAssignment] WHERE [ChangaId] = {id})");
+        if (updated != 1)
+        {
+            return ChangaCancelPersistenceResult.NotAvailable;
+        }
+
+        await transaction.CommitAsync();
+        context.ChangeTracker.Clear();
+        return ChangaCancelPersistenceResult.Cancelled;
+    }
+
     public async Task<ChangaCompletionTransitionResult> TransitionCompletionAsync(
         Guid id,
         ChangaStatus expectedStatus,
@@ -129,6 +174,55 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         await transaction.CommitAsync();
         context.ChangeTracker.Clear();
         return ChangaCompletionTransitionResult.Updated;
+    }
+
+    public async Task<ChangaPaymentDeclarationPersistenceResult> DeclarePaymentAsync(
+        Guid id, bool requester, DateTimeOffset declaredAt)
+    {
+        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        var changa = await context.Changas
+            .FromSqlInterpolated(
+                $"SELECT * FROM [Changas] WITH (UPDLOCK, ROWLOCK) WHERE [Id] = {id}")
+            .SingleOrDefaultAsync();
+        var assignment = await context.Set<ChangaAssignment>()
+            .SingleOrDefaultAsync(item => item.ChangaId == id);
+        if (changa is null || assignment is null)
+        {
+            return ChangaPaymentDeclarationPersistenceResult.StateChanged;
+        }
+
+        if (changa.Status != ChangaStatus.Confirmed)
+        {
+            return ChangaPaymentDeclarationPersistenceResult.StateChanged;
+        }
+
+        if (requester)
+        {
+            if (assignment.RequesterPaymentDeclaredAt is not null)
+            {
+                return ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared;
+            }
+            assignment.RequesterPaymentDeclaredAt = declaredAt;
+        }
+        else
+        {
+            if (assignment.WorkerPaymentDeclaredAt is not null)
+            {
+                return ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared;
+            }
+            assignment.WorkerPaymentDeclaredAt = declaredAt;
+        }
+
+        if (assignment.RequesterPaymentDeclaredAt is not null &&
+            assignment.WorkerPaymentDeclaredAt is not null)
+        {
+            changa.Status = ChangaStatus.Completed;
+        }
+
+        await context.SaveChangesAsync();
+        await transaction.CommitAsync();
+        context.ChangeTracker.Clear();
+        return ChangaPaymentDeclarationPersistenceResult.Updated;
     }
 
     public async Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone)

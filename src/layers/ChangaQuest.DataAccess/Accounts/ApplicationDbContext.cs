@@ -51,6 +51,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(assignment => assignment.WorkerPhoneConsent).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.Property(assignment => assignment.WorkerPhone).HasMaxLength(ChangaPolicy.MaximumPhoneLength);
             entity.Property(assignment => assignment.CompletionReviewCause).HasMaxLength(16);
+            entity.Property(assignment => assignment.RequesterPaymentDeclaredAt);
+            entity.Property(assignment => assignment.WorkerPaymentDeclaredAt);
             entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
         });
         builder.Entity<ChangaRating>(entity =>
