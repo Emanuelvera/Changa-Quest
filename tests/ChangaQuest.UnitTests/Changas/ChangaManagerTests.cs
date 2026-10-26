@@ -45,6 +45,19 @@ public sealed class ChangaManagerTests
     }
 
     [Fact]
+    public async Task Cancellation_does_not_return_stale_success_if_publication_disappears_after_transition()
+    {
+        var changa = AvailableChanga("account-id");
+        var store = new FakeChangaStore(changa) { RemoveChangaAfterCancellation = true };
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.CancelAsync("account-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.NotFound, result.Status);
+        Assert.Null(result.Changa);
+    }
+
+    [Fact]
     public async Task Non_author_cannot_cancel_even_when_changa_has_an_assignment()
     {
         var changa = AvailableChanga("author-id");
@@ -564,6 +577,7 @@ public sealed class ChangaManagerTests
     {
         public List<Changa> Changas { get; set; } = [];
         public List<ChangaAssignment> Assignments { get; } = [];
+        public bool RemoveChangaAfterCancellation { get; init; }
 
         public FakeChangaStore(params Changa[] changas) => Changas.AddRange(changas);
 
@@ -676,6 +690,7 @@ public sealed class ChangaManagerTests
             if (changa.Assignment is not null) return Task.FromResult(ChangaCancelPersistenceResult.AlreadyAssigned);
             if (changa.Status != ChangaStatus.Available) return Task.FromResult(ChangaCancelPersistenceResult.NotAvailable);
             changa.Status = ChangaStatus.Cancelled;
+            if (RemoveChangaAfterCancellation) Changas.Remove(changa);
             return Task.FromResult(ChangaCancelPersistenceResult.Cancelled);
         }
     }

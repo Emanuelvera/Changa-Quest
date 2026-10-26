@@ -13,11 +13,17 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var client = factory.CreateClient();
         using var publish = await client.PostAsJsonAsync("/api/v1/changas", ValidRequest());
         using var board = await client.GetAsync("/api/v1/changas");
+        using var mine = await client.GetAsync("/api/v1/changas/mine");
+        using var cancel = await client.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, publish.StatusCode);
         Assert.Equal("application/problem+json", publish.Content.Headers.ContentType?.MediaType);
         Assert.Equal(HttpStatusCode.Unauthorized, board.StatusCode);
         Assert.Equal("application/problem+json", board.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(HttpStatusCode.Unauthorized, mine.StatusCode);
+        Assert.Equal("application/problem+json", mine.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(HttpStatusCode.Unauthorized, cancel.StatusCode);
+        Assert.Equal("application/problem+json", cancel.Content.Headers.ContentType?.MediaType);
     }
 
     [Fact]
@@ -50,8 +56,12 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
 
         using var board = await client.GetAsync("/api/v1/changas");
         using var categories = await client.GetAsync("/api/v1/changas/categories");
+        using var mine = await client.GetAsync("/api/v1/changas/mine");
+        using var cancel = await client.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
         Assert.Equal(HttpStatusCode.Forbidden, board.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, categories.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, mine.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, cancel.StatusCode);
         Assert.Equal("application/problem+json", board.Content.Headers.ContentType?.MediaType);
     }
 
@@ -276,6 +286,9 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         Assert.Contains(mineJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
         Assert.DoesNotContain(address, mineContent, StringComparison.Ordinal);
         Assert.DoesNotContain("exactAddress", mineContent, StringComparison.OrdinalIgnoreCase);
+        using var otherMine = await other.GetAsync("/api/v1/changas/mine");
+        using var otherMineJson = await JsonDocument.ParseAsync(await otherMine.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(otherMineJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
 
         using var forbidden = await other.PostAsync($"/api/v1/changas/{id}/cancel", null);
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);

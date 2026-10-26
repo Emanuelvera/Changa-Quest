@@ -78,6 +78,19 @@ context:
 
 ## Review Triage Log
 
+| # | Hallazgo | Veredicto y evidencia | Ruta |
+|---|---|---|---|
+| 1 | Una segunda confirmación podía reemplazar a la cancelación en curso. | **medium** — Mientras se esperaba la respuesta de A, podía abrirse B y la respuesta de A cerraba esa confirmación; ahora se bloquean los botones y `BeginCancellation` rechaza cambios durante la operación. | patch — corregido |
+| 2 | Un error de cancelación seguía visible tras una actualización exitosa. | **medium** — La recarga no limpiaba el error obsoleto; ahora solo la actualización explícita lo limpia después de cargar correctamente. | patch — corregido |
+| 3 | Un error al cargar coordinaciones impedía cargar y mostrar publicaciones propias. | **medium** — La carga secuencial y un error compartido ocultaban ambas secciones; ahora cada sección carga, informa fallos y reintenta por separado. | patch — corregido |
+| 4 | No se verificaba en API que otra cuenta no vea las publicaciones propias. | **low** — `ListMyUnassignedAsync` consulta por `authorId`; la prueba de integración ahora comprueba que una segunda cuenta recibe un listado vacío. | patch — cubierto |
+| 5 | El nombre accesible de cancelar no identificaba la publicación. | **medium** — Todas las tarjetas compartían el mismo `aria-label`; ahora incluye la descripción de la publicación. | patch — corregido |
+| 6 | La confirmación y el cambio de estado no se anunciaban explícitamente. | **medium** — La confirmación ahora contiene un mensaje `role="status"` y el estado de cada publicación se expone como región de estado. | patch — corregido |
+| 7 | Las tarjetas no mostraban zona ni recompensa para distinguir publicaciones. | **low** — Se muestran la zona y la recompensa en ARS, sin exponer la dirección privada. | patch — corregido |
+| 8 | Faltaban pruebas de fallos de red y timeout al cancelar. | **low** — Se añadieron casos de `HttpRequestException` y `OperationCanceledException`; comprueban que no se anuncie éxito falso. | patch — cubierto |
+| 9 | El contrato no verificaba el código `changa_not_found` de cancelación. | **low** — La prueba del contrato ahora afirma que el esquema de cancelación declara ese código. | patch — cubierto |
+| 10 | No se probaba la autorización de las nuevas rutas para cuentas no autenticadas o no elegibles. | **low** — Se añadieron verificaciones 401 y 403 para `/mine` y `/{id}/cancel`; las rutas ya están protegidas por autorización y validación de elegibilidad. | patch — cubierto |
+
 ## Design Notes
 
 La cancelación conserva el registro y cambia su estado; no equivale a borrar la publicación. El listado de «Publicadas por mí» comprende publicaciones propias sin asignación y muestra su estado, mientras que solo `available` ofrece la acción de cancelar. La ruta y el método de persistencia deben serializarse con la toma de la Story 1.4 para que no puedan confirmarse ambas operaciones.
@@ -86,4 +99,4 @@ La cancelación conserva el registro y cambia su estado; no equivale a borrar la
 
 **Commands:**
 - `dotnet build ChangaQuest.sln --nologo -v:q` -- correcto (0 errores).
-- `dotnet test --test-modules "tests\**\bin\Debug\net10.0\*Tests.dll"` -- correcto (138 pruebas, 0 errores).
+- `dotnet test --test-modules "tests\**\bin\Debug\net10.0\*Tests.dll"` -- correcto (145 pruebas, 0 errores).

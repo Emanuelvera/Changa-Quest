@@ -24,7 +24,7 @@ public class OpenApiContractTests
         Assert.Contains("changa_cancel_forbidden", contract, StringComparison.Ordinal);
         Assert.Contains("changa_already_assigned", contract, StringComparison.Ordinal);
         Assert.Contains("changa_not_available", contract, StringComparison.Ordinal);
-        Assert.Contains("changa_already_assigned", contract, StringComparison.Ordinal);
+        Assert.Contains("changa_not_found", contract, StringComparison.Ordinal);
         Assert.Contains("ChangaTakeResponse", contract, StringComparison.Ordinal);
         Assert.Contains("exactAddress:", contract, StringComparison.Ordinal);
         Assert.Contains("materialsNeeded:", contract, StringComparison.Ordinal);
@@ -84,6 +84,7 @@ public class OpenApiContractTests
         Assert.Contains("changa_cancel_forbidden", cancel, StringComparison.Ordinal);
         Assert.Contains("changa_already_assigned", cancel, StringComparison.Ordinal);
         Assert.Contains("changa_not_available", cancel, StringComparison.Ordinal);
+        Assert.Contains("changa_not_found", cancel, StringComparison.Ordinal);
         Assert.DoesNotContain("ExactAddress", mine, StringComparison.Ordinal);
     }
 

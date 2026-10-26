@@ -293,12 +293,18 @@ public sealed class ChangaManager(
         }
 
         var cancellation = await changaStore.CancelAsync(id);
+        if (cancellation == ChangaCancelPersistenceResult.Cancelled)
+        {
+            var cancelledChanga = await changaStore.FindByIdAsync(id);
+            return cancelledChanga is null
+                ? new ChangaManagerResult(ChangaManagerStatus.NotFound)
+                : new ChangaManagerResult(
+                    ChangaManagerStatus.Success,
+                    Changa: Project(cancelledChanga));
+        }
+
         return cancellation switch
         {
-            ChangaCancelPersistenceResult.Cancelled =>
-                new ChangaManagerResult(
-                    ChangaManagerStatus.Success,
-                    Changa: Project(await changaStore.FindByIdAsync(id) ?? changa)),
             ChangaCancelPersistenceResult.AlreadyAssigned =>
                 new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned),
             ChangaCancelPersistenceResult.NotAvailable =>
