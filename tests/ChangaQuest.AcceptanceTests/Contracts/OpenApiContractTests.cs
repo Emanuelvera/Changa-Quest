@@ -89,6 +89,25 @@ public class OpenApiContractTests
     }
 
     [Fact]
+    public void Report_contract_never_returns_reason_on_submit_and_restricts_reading_to_administrators()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+        var submit = ExtractOperation(contract, "  /api/v1/reports:", "  /api/v1/reports/{id}:");
+        var read = ExtractOperation(contract, "  /api/v1/reports/{id}:", "components:");
+        var submitted = ExtractOperation(contract, "    ReportSubmitted:", "    Report:");
+
+        Assert.Contains("operationId: submitReport", submit, StringComparison.Ordinal);
+        Assert.Contains("changa_not_found", submit, StringComparison.Ordinal);
+        Assert.Contains("ValidationProblem", submit, StringComparison.Ordinal);
+        Assert.Contains("operationId: getReport", read, StringComparison.Ordinal);
+        Assert.Contains("report_forbidden", read, StringComparison.Ordinal);
+        Assert.Contains("report_not_found", read, StringComparison.Ordinal);
+        Assert.DoesNotContain("reason", submitted, StringComparison.Ordinal);
+        Assert.DoesNotContain("evidence", submitted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Coordination_contract_describes_the_phone_consent_variants_and_private_responses()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");

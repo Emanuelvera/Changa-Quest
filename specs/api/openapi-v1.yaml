@@ -613,6 +613,71 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+  /api/v1/reports:
+    post:
+      operationId: submitReport
+      summary: Envía un reporte sobre una changa; queda pendiente de revisión administrativa y no se publica
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitReportRequest"
+      responses:
+        "201":
+          description: Reporte registrado con estado pending. No devuelve motivo ni evidencia.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportSubmitted"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          description: No existe la changa reportada; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/reports/{id}:
+    get:
+      operationId: getReport
+      summary: Lee un reporte y su evidencia; solo cuentas con el rol Administrator
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Reporte con motivo y evidencia.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no es administradora; código report_forbidden. Se aplica aunque se conozca el identificador.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: No existe el reporte; código report_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 components:
   securitySchemes:
     cookieAuth:
@@ -894,6 +959,41 @@ components:
         email:
           type: string
           format: email
+    SubmitReportRequest:
+      type: object
+      required: [changaId, reason]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Obligatorio; se mide después de quitar espacios al inicio y al final.
+        evidence:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: Opcional; texto o enlace. No se aceptan archivos en esta versión.
+    ReportSubmitted:
+      type: object
+      required: [id, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending] }
+        createdAt: { type: string, format: date-time }
+    Report:
+      type: object
+      required: [id, changaId, reporterId, reason, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        changaId: { type: string, format: uuid }
+        reporterId: { type: string }
+        reason: { type: string }
+        evidence: { type: string, nullable: true }
+        status: { type: string, enum: [pending] }
+        createdAt: { type: string, format: date-time }
     Problem:
       type: object
       properties:

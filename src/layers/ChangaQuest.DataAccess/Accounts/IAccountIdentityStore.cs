@@ -10,6 +10,7 @@ public interface IAccountIdentityStore
     Task SignOutAsync();
     Task<AppUser?> FindByIdAsync(string userId);
     Task SaveSearchPreferenceAsync(AppUser user);
+    Task<bool> IsInRoleAsync(string userId, string role) => Task.FromResult(false);
 }
 
 public sealed record AccountCreationResult(
