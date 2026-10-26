@@ -299,6 +299,90 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/cancellation-requests:
+    post:
+      operationId: proposeChangaCancellation
+      summary: Propone cancelar una changa asignada por acuerdo mutuo
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Solicitud pendiente; la asignación continúa activa.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationRequest"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código cancellation_request_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La changa no está asignada o ya existe una solicitud pendiente; código cancellation_request_conflict.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/cancellation-requests/{requestId}:
+    post:
+      operationId: respondChangaCancellation
+      summary: Acepta o rechaza una propuesta de cancelación
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancellationResponseRequest"
+      responses:
+        "200":
+          description: Respuesta registrada; aceptar cancela y libera la asignación atómicamente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationRequest"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no es la otra parte; código cancellation_request_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La solicitud o changa ya cambió; código cancellation_request_conflict.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/coordinations:
     get:
       operationId: listCoordinations
@@ -454,6 +538,38 @@ components:
           format: double
           minimum: 0
           description: Distancia aproximada en línea recta desde la ubicación de búsqueda.
+    CancellationRequest:
+      type: object
+      required: [id, changaId, status, requestedByRole, createdAt, code]
+      properties:
+        id:
+          type: string
+          format: uuid
+        changaId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, accepted, rejected]
+        requestedByRole:
+          type: string
+          enum: [requester, worker]
+        createdAt:
+          type: string
+          format: date-time
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+        code:
+          type: string
+          enum: [cancellation_request_created, cancellation_request_updated]
+    CancellationResponseRequest:
+      type: object
+      required: [accept]
+      properties:
+        accept:
+          type: boolean
     PhoneConsentRequest:
       type: object
       required: [sharePhone]
@@ -481,7 +597,7 @@ components:
             required: [phone]
     ChangaCoordination:
       type: object
-      required: [changaId, description, role, yourConsent, otherPartyConsent, hasMutualConsent, otherPhone, exactAddress]
+      required: [changaId, description, role, yourConsent, otherPartyConsent, hasMutualConsent, otherPhone, exactAddress, cancellationRequest]
       properties:
         changaId:
           type: string
@@ -508,6 +624,10 @@ components:
           type: string
           nullable: true
           description: Dirección exacta ficticia, solo para la persona realizadora asignada.
+        cancellationRequest:
+          allOf:
+            - $ref: "#/components/schemas/CancellationRequest"
+          nullable: true
     ChangaTakeResponse:
       type: object
       required: [changa, assignment]

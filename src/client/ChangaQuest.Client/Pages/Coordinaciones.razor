@@ -1,5 +1,7 @@
 @page "/coordinaciones"
+@using Microsoft.JSInterop
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Mis changas · Changa Quest</PageTitle>
 
@@ -9,6 +11,11 @@
         <h1>Coordinaciones</h1>
         <p class="intro">Consultá las changas que tenés asignadas y sus datos privados autorizados.</p>
     </header>
+
+    @if (!string.IsNullOrWhiteSpace(Success))
+    {
+        <p class="status" role="status">@Success</p>
+    }
 
     @if (Loading)
     {
@@ -39,6 +46,25 @@
                     {
                         <p class="status" role="status">@(item.OtherPartyConsent == "accepted" ? "La otra parte aceptó; falta tu decisión para compartir los teléfonos." : "La otra parte no compartió su teléfono; los teléfonos siguen ocultos.")</p>
                     }
+                    @if (item.CancellationRequest is { Status: "pending" } cancellation &&
+                         cancellation.RequestedByRole != item.Role)
+                    {
+                        <p class="status" role="status">La otra parte propuso cancelar esta changa por acuerdo mutuo.</p>
+                        <button class="button secondary" type="button" @onclick="() => RespondCancellationAsync(item.ChangaId, cancellation.Id, true)">Aceptar cancelación</button>
+                        <button class="button secondary" type="button" @onclick="() => RespondCancellationAsync(item.ChangaId, cancellation.Id, false)">Rechazar cancelación</button>
+                    }
+                    else if (item.CancellationRequest is { Status: "pending" })
+                    {
+                        <p class="status" role="status">Tu solicitud de cancelación está pendiente de respuesta.</p>
+                    }
+                    else if (item.CancellationRequest is null || item.CancellationRequest.Status == "rejected")
+                    {
+                        <button class="button secondary" type="button" @onclick="() => ProposeCancellationAsync(item.ChangaId)">Proponer cancelación</button>
+                    }
+                    else if (item.CancellationRequest.Status == "accepted")
+                    {
+                        <p class="status" role="status">La cancelación fue confirmada y la asignación fue liberada.</p>
+                    }
                     <a class="button-link" href="@($"/tareas/{item.ChangaId}/coordinacion")">Ver coordinación</a>
                 </article>
             }
@@ -50,6 +76,7 @@
     private readonly List<CoordinationView> Coordinations = [];
     private bool Loading = true;
     private string? Error;
+    private string? Success;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -57,6 +84,7 @@
     {
         Loading = true;
         Error = null;
+        Success = null;
         try
         {
             using var response = await Http.GetAsync("/api/v1/coordinations");
@@ -88,6 +116,71 @@
         }
     }
 
+    private async Task ProposeCancellationAsync(Guid changaId)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "¿Querés proponer cancelar esta changa por acuerdo mutuo?"))
+        {
+            return;
+        }
+
+        try
+        {
+            using var response = await Http.PostAsync($"/api/v1/changas/{changaId}/cancellation-requests", null);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadAsync();
+                Success = "La solicitud de cancelación quedó pendiente de respuesta.";
+            }
+            else
+            {
+                Error = "No se pudo proponer la cancelación. La changa sigue asignada.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. La changa sigue asignada.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. La changa sigue asignada.";
+        }
+    }
+
+    private async Task RespondCancellationAsync(Guid changaId, Guid requestId, bool accept)
+    {
+        var action = accept ? "aceptar" : "rechazar";
+        if (!await JS.InvokeAsync<bool>("confirm", $"¿Querés {action} la solicitud de cancelación?"))
+        {
+            return;
+        }
+
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"/api/v1/changas/{changaId}/cancellation-requests/{requestId}",
+                new { accept });
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadAsync();
+                Success = accept
+                    ? "La cancelación fue confirmada y la asignación fue liberada."
+                    : "La solicitud fue rechazada. La changa sigue asignada.";
+            }
+            else
+            {
+                Error = "No se pudo registrar la respuesta. La changa mantiene su estado.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. La changa mantiene su estado.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. La changa mantiene su estado.";
+        }
+    }
+
     private sealed record CoordinationView(
         Guid ChangaId,
         string Description,
@@ -95,5 +188,8 @@
         string YourConsent,
         string OtherPartyConsent,
         bool HasMutualConsent,
-        string? OtherPhone);
+        string? OtherPhone,
+        CancellationView? CancellationRequest);
+
+    private sealed record CancellationView(Guid Id, Guid ChangaId, string Status, string RequestedByRole);
 }

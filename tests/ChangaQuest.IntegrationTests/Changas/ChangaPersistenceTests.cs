@@ -86,6 +86,72 @@ public class ChangaPersistenceTests
     }
 
     [Fact]
+    public async Task Mutual_cancellation_acceptance_cancels_and_releases_assignment_atomically()
+    {
+        var databaseName = $"ChangaQuestCancellation_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        try
+        {
+            await using var context = new ApplicationDbContext(options);
+            await context.Database.MigrateAsync();
+            var store = new ChangaStore(context);
+            await store.AddAsync(new Changa
+            {
+                Id = changaId,
+                Description = "Descripción asignada para cancelar.",
+                Reward = 5000,
+                Zone = "Centro",
+                ExactAddress = "Dirección privada 123",
+                MaterialsNeeded = false,
+                AssignmentMode = AssignmentMode.FirstCome,
+                Status = ChangaStatus.Assigned,
+                AuthorId = "requester-id",
+                Assignment = new ChangaAssignment
+                {
+                    Id = Guid.NewGuid(),
+                    ChangaId = changaId,
+                    WorkerId = "worker-id",
+                    AssignedAt = DateTimeOffset.UtcNow
+                },
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+
+            var proposal = await store.CreateCancellationRequestAsync(
+                changaId, "requester-id", "worker-id");
+            Assert.Equal(ChangaCancellationPersistenceStatus.Created, proposal.Status);
+
+            var duplicate = await store.CreateCancellationRequestAsync(
+                changaId, "worker-id", "requester-id");
+            Assert.Equal(ChangaCancellationPersistenceStatus.Conflict, duplicate.Status);
+            Assert.Equal(
+                1,
+                await context.Set<ChangaCancellationRequest>()
+                    .CountAsync(request => request.ChangaId == changaId));
+
+            var accepted = await store.RespondCancellationRequestAsync(
+                changaId, proposal.Request!.Id, "worker-id", true);
+            Assert.Equal(ChangaCancellationPersistenceStatus.Accepted, accepted.Status);
+
+            var cancelled = await context.Changas
+                .Include(changa => changa.Assignment)
+                .SingleAsync(changa => changa.Id == changaId);
+            Assert.Equal(ChangaStatus.Cancelled, cancelled.Status);
+            Assert.Null(cancelled.Assignment);
+            Assert.Equal(
+                ChangaCancellationRequestStatus.Accepted,
+                await context.Set<ChangaCancellationRequest>()
+                    .Where(request => request.ChangaId == changaId)
+                    .Select(request => request.Status)
+                    .SingleAsync());
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
     public async Task Taking_a_changa_persists_one_unique_assignment_and_is_idempotent()
     {
         var databaseName = $"ChangaQuestChangaAssignment_{Guid.NewGuid():N}";

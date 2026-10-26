@@ -217,6 +217,58 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
     }
 
     [Fact]
+    public async Task Assigned_parties_can_cancel_only_after_mutual_explicit_acceptance()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var outsider = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+
+        using var proposal = await author.PostAsync(
+            $"/api/v1/changas/{id}/cancellation-requests", null);
+        Assert.Equal(HttpStatusCode.Created, proposal.StatusCode);
+        using var proposalJson = await JsonDocument.ParseAsync(await proposal.Content.ReadAsStreamAsync());
+        Assert.Equal(
+            "cancellation_request_created",
+            proposalJson.RootElement.GetProperty("code").GetString());
+        var requestId = proposalJson.RootElement.GetProperty("id").GetGuid();
+
+        using var outsiderResponse = await outsider.PostAsJsonAsync(
+            $"/api/v1/changas/{id}/cancellation-requests/{requestId}", new { accept = true });
+        Assert.Equal(HttpStatusCode.Forbidden, outsiderResponse.StatusCode);
+        using var outsiderJson = await JsonDocument.ParseAsync(
+            await outsiderResponse.Content.ReadAsStreamAsync());
+        Assert.Equal(
+            "cancellation_request_forbidden",
+            outsiderJson.RootElement.GetProperty("code").GetString());
+
+        using var rejection = await worker.PostAsJsonAsync(
+            $"/api/v1/changas/{id}/cancellation-requests/{requestId}", new { accept = false });
+        Assert.Equal(HttpStatusCode.OK, rejection.StatusCode);
+        using var rejectionJson = await JsonDocument.ParseAsync(
+            await rejection.Content.ReadAsStreamAsync());
+        Assert.Equal("cancellation_request_updated", rejectionJson.RootElement.GetProperty("code").GetString());
+        using var stillAssigned = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        Assert.Equal(HttpStatusCode.OK, stillAssigned.StatusCode);
+
+        using var secondProposal = await worker.PostAsync(
+            $"/api/v1/changas/{id}/cancellation-requests", null);
+        Assert.Equal(HttpStatusCode.Created, secondProposal.StatusCode);
+        using var secondJson = await JsonDocument.ParseAsync(await secondProposal.Content.ReadAsStreamAsync());
+        var secondRequestId = secondJson.RootElement.GetProperty("id").GetGuid();
+
+        using var acceptance = await author.PostAsJsonAsync(
+            $"/api/v1/changas/{id}/cancellation-requests/{secondRequestId}", new { accept = true });
+        Assert.Equal(HttpStatusCode.OK, acceptance.StatusCode);
+        using var cancelled = await author.GetAsync($"/api/v1/changas/{id}/coordination");
+        Assert.Equal(HttpStatusCode.Conflict, cancelled.StatusCode);
+    }
+
+    [Fact]
     public async Task Author_cannot_take_own_changa_and_other_worker_gets_stable_conflict()
     {
         using var author = await CreateVerifiedClientAsync();

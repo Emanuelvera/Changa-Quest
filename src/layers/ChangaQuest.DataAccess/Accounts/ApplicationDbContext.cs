@@ -29,6 +29,10 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                 .WithOne(assignment => assignment.Changa)
                 .HasForeignKey<ChangaAssignment>(assignment => assignment.ChangaId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(changa => changa.CancellationRequests)
+                .WithOne(request => request.Changa)
+                .HasForeignKey(request => request.ChangaId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
         builder.Entity<ChangaAssignment>(entity =>
         {
@@ -39,6 +43,16 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(assignment => assignment.WorkerPhoneConsent).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.Property(assignment => assignment.WorkerPhone).HasMaxLength(ChangaPolicy.MaximumPhoneLength);
             entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
+        });
+        builder.Entity<ChangaCancellationRequest>(entity =>
+        {
+            entity.HasKey(request => request.Id);
+            entity.Property(request => request.RequestedById).HasMaxLength(450).IsRequired();
+            entity.Property(request => request.TargetId).HasMaxLength(450).IsRequired();
+            entity.Property(request => request.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.HasIndex(request => request.ChangaId)
+                .IsUnique()
+                .HasFilter("[Status] = 'Pending'");
         });
         builder.Entity<AppUser>()
             .Property(user => user.SearchLatitude)

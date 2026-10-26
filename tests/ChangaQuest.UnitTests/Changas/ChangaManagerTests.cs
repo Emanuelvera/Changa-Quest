@@ -249,6 +249,96 @@ public sealed class ChangaManagerTests
         Assert.Empty(outsiderList.Coordinations!);
     }
 
+    [Fact]
+    public async Task Participant_proposes_cancellation_without_releasing_assignment()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var result = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal("pending", result.CancellationRequest!.Status);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+        Assert.NotNull(changa.Assignment);
+    }
+
+    [Fact]
+    public async Task Other_part_accepts_and_cancels_atomically()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        var proposal = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        var result = await manager.RespondCancellationAsync(
+            "worker-id", changa.Id, proposal.CancellationRequest!.Id, true);
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal("accepted", result.CancellationRequest!.Status);
+        Assert.Equal(ChangaStatus.Cancelled, changa.Status);
+        Assert.Null(changa.Assignment);
+        Assert.Empty(store.Assignments);
+    }
+
+    [Fact]
+    public async Task Rejection_keeps_assignment_and_allows_a_later_proposal()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        var first = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        var rejected = await manager.RespondCancellationAsync(
+            "worker-id", changa.Id, first.CancellationRequest!.Id, false);
+        var second = await manager.ProposeCancellationAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, rejected.Status);
+        Assert.Equal("rejected", rejected.CancellationRequest!.Status);
+        Assert.Equal(ChangaManagerStatus.Success, second.Status);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+        Assert.NotNull(changa.Assignment);
+    }
+
+    [Fact]
+    public async Task Outsider_cannot_propose_or_respond_to_cancellation()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var proposal = await manager.ProposeCancellationAsync("outsider-id", changa.Id);
+        Assert.Equal(ChangaManagerStatus.CancellationForbidden, proposal.Status);
+
+        var ownProposal = await manager.ProposeCancellationAsync("author-id", changa.Id);
+        var response = await manager.RespondCancellationAsync(
+            "outsider-id", changa.Id, ownProposal.CancellationRequest!.Id, true);
+        Assert.Equal(ChangaManagerStatus.CancellationForbidden, response.Status);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+    }
+
+    [Fact]
+    public async Task Second_pending_proposal_is_rejected_without_overwriting_persisted_request()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        var first = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        var second = await manager.ProposeCancellationAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.CancellationConflict, second.Status);
+        Assert.Single(store.CancellationRequests);
+        Assert.Equal(first.CancellationRequest!.Id, store.CancellationRequests[0].Id);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+    }
+
     private static Changa AvailableChanga(string authorId) => new()
     {
         Id = Guid.NewGuid(),
@@ -361,6 +451,7 @@ public sealed class ChangaManagerTests
     {
         public List<Changa> Changas { get; set; } = [];
         public List<ChangaAssignment> Assignments { get; } = [];
+        public List<ChangaCancellationRequest> CancellationRequests { get; } = [];
 
         public FakeChangaStore(params Changa[] changas) => Changas.AddRange(changas);
 
@@ -440,6 +531,82 @@ public sealed class ChangaManagerTests
             changa.Status = ChangaStatus.Assigned;
             Assignments.Add(assignment);
             return Task.FromResult(ChangaTakePersistenceResult.Assigned);
+        }
+
+        public Task<ChangaCancellationPersistenceResult> CreateCancellationRequestAsync(
+            Guid changaId, string requestedById, string targetId)
+        {
+            var changa = Changas.SingleOrDefault(item => item.Id == changaId);
+            if (changa?.Assignment is null || changa.Status != ChangaStatus.Assigned)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Forbidden));
+            }
+
+            if (CancellationRequests.Any(item =>
+                    item.ChangaId == changaId &&
+                    item.Status == ChangaCancellationRequestStatus.Pending))
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Conflict));
+            }
+
+            var request = new ChangaCancellationRequest
+            {
+                Id = Guid.NewGuid(),
+                ChangaId = changaId,
+                RequestedById = requestedById,
+                TargetId = targetId,
+                Status = ChangaCancellationRequestStatus.Pending,
+                CreatedAt = DateTimeOffset.UtcNow,
+                Changa = changa
+            };
+            CancellationRequests.Add(request);
+            changa.CancellationRequests.Add(request);
+            return Task.FromResult(new ChangaCancellationPersistenceResult(
+                ChangaCancellationPersistenceStatus.Created, request));
+        }
+
+        public Task<ChangaCancellationPersistenceResult> RespondCancellationRequestAsync(
+            Guid changaId, Guid requestId, string responderId, bool accept)
+        {
+            var request = CancellationRequests.SingleOrDefault(item =>
+                item.Id == requestId && item.ChangaId == changaId);
+            var changa = Changas.SingleOrDefault(item => item.Id == changaId);
+            if (request is null || changa is null)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.NotFound));
+            }
+
+            if (request.TargetId != responderId)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Forbidden));
+            }
+
+            if (request.Status != ChangaCancellationRequestStatus.Pending ||
+                changa.Status != ChangaStatus.Assigned ||
+                changa.Assignment is null)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Conflict));
+            }
+
+            request.Status = accept
+                ? ChangaCancellationRequestStatus.Accepted
+                : ChangaCancellationRequestStatus.Rejected;
+            request.RespondedAt = DateTimeOffset.UtcNow;
+            if (accept)
+            {
+                changa.Status = ChangaStatus.Cancelled;
+                Assignments.Remove(changa.Assignment);
+                changa.Assignment = null;
+            }
+
+            return Task.FromResult(new ChangaCancellationPersistenceResult(
+                accept ? ChangaCancellationPersistenceStatus.Accepted : ChangaCancellationPersistenceStatus.Rejected,
+                request));
         }
     }
 

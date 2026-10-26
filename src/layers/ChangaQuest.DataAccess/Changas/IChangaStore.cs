@@ -13,6 +13,10 @@ public interface IChangaStore
     Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
     Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
+    Task<ChangaCancellationPersistenceResult> CreateCancellationRequestAsync(
+        Guid changaId, string requestedById, string targetId);
+    Task<ChangaCancellationPersistenceResult> RespondCancellationRequestAsync(
+        Guid changaId, Guid requestId, string responderId, bool accept);
 }
 
 public enum ChangaTakePersistenceResult
@@ -21,5 +25,19 @@ public enum ChangaTakePersistenceResult
     AlreadyAssignedToWorker,
     AlreadyAssignedToOther,
     NotAvailable,
+    NotFound
+}
+
+public sealed record ChangaCancellationPersistenceResult(
+    ChangaCancellationPersistenceStatus Status,
+    ChangaCancellationRequest? Request = null);
+
+public enum ChangaCancellationPersistenceStatus
+{
+    Created,
+    Accepted,
+    Rejected,
+    Forbidden,
+    Conflict,
     NotFound
 }
