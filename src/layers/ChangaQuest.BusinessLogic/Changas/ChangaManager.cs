@@ -145,6 +145,20 @@ public sealed class ChangaManager(
             Changas: changas.Select(changa => Project(changa)).ToArray());
     }
 
+    public async Task<ChangaManagerResult> ListMyUnassignedAsync(string? userId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changas = await changaStore.ListMyUnassignedAsync(userId!);
+        return new ChangaManagerResult(
+            ChangaManagerStatus.Success,
+            Changas: changas.Select(changa => Project(changa)).ToArray());
+    }
+
     public async Task<ChangaManagerResult> SearchAvailableAsync(string? userId, ChangaSearchQuery query)
     {
         var access = await CheckAccessAsync(userId);
@@ -244,6 +258,56 @@ public sealed class ChangaManager(
             ChangaTakePersistenceResult.AlreadyAssignedToOther =>
                 new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned),
             ChangaTakePersistenceResult.NotAvailable =>
+                new ChangaManagerResult(ChangaManagerStatus.NotAvailable),
+            _ => new ChangaManagerResult(ChangaManagerStatus.NotFound)
+        };
+    }
+
+    public async Task<ChangaManagerResult> CancelAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotFound);
+        }
+
+        if (changa.AuthorId != userId)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.CancelForbidden);
+        }
+
+        if (changa.Assignment is not null || changa.Status == ChangaStatus.Assigned)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned);
+        }
+
+        if (changa.Status != ChangaStatus.Available)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotAvailable);
+        }
+
+        var cancellation = await changaStore.CancelAsync(id);
+        if (cancellation == ChangaCancelPersistenceResult.Cancelled)
+        {
+            var cancelledChanga = await changaStore.FindByIdAsync(id);
+            return cancelledChanga is null
+                ? new ChangaManagerResult(ChangaManagerStatus.NotFound)
+                : new ChangaManagerResult(
+                    ChangaManagerStatus.Success,
+                    Changa: Project(cancelledChanga));
+        }
+
+        return cancellation switch
+        {
+            ChangaCancelPersistenceResult.AlreadyAssigned =>
+                new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned),
+            ChangaCancelPersistenceResult.NotAvailable =>
                 new ChangaManagerResult(ChangaManagerStatus.NotAvailable),
             _ => new ChangaManagerResult(ChangaManagerStatus.NotFound)
         };
@@ -794,7 +858,8 @@ public enum ChangaManagerStatus
     CompletionInvalidState,
     PaymentDeclarationForbidden,
     PaymentDeclarationUnavailable,
-    PaymentDeclarationAlreadyRecorded
+    PaymentDeclarationAlreadyRecorded,
+    CancelForbidden
 }
 
 public enum ChangaCoordinationRole

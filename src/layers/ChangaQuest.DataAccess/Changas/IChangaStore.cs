@@ -7,9 +7,11 @@ public interface IChangaStore
     Task AddAsync(Changa changa);
     Task<IReadOnlyList<Changa>> ListAvailableAsync();
     Task<IReadOnlyList<Changa>> ListAvailableForSearchAsync();
+    Task<IReadOnlyList<Changa>> ListMyUnassignedAsync(string authorId);
     Task<Changa?> FindAvailableByIdAsync(Guid id);
     Task<Changa?> FindByIdAsync(Guid id);
     Task<ChangaTakePersistenceResult> TakeAsync(Guid id, string workerId);
+    Task<ChangaCancelPersistenceResult> CancelAsync(Guid id);
     Task<ChangaCompletionTransitionResult> TransitionCompletionAsync(
         Guid id, ChangaStatus expectedStatus, ChangaStatus newStatus,
         DateTimeOffset? requestedAt = null, DateTimeOffset? deadline = null,
@@ -31,6 +33,14 @@ public enum ChangaTakePersistenceResult
     Assigned,
     AlreadyAssignedToWorker,
     AlreadyAssignedToOther,
+    NotAvailable,
+    NotFound
+}
+
+public enum ChangaCancelPersistenceResult
+{
+    Cancelled,
+    AlreadyAssigned,
     NotAvailable,
     NotFound
 }

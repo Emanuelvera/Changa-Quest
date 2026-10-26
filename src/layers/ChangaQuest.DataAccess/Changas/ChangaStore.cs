@@ -39,6 +39,14 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
     public Task<IReadOnlyList<Changa>> ListAvailableForSearchAsync() =>
         ListAvailableAsync();
 
+    public async Task<IReadOnlyList<Changa>> ListMyUnassignedAsync(string authorId) =>
+        await context.Changas
+            .AsNoTracking()
+            .Where(changa => changa.AuthorId == authorId &&
+                !context.Set<ChangaAssignment>().Any(assignment => assignment.ChangaId == changa.Id))
+            .OrderByDescending(changa => changa.CreatedAt)
+            .ToArrayAsync();
+
     public Task<Changa?> FindAvailableByIdAsync(Guid id) =>
         context.Changas
             .AsNoTracking()
@@ -93,6 +101,43 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         context.ChangeTracker.Clear();
         await transaction.CommitAsync();
         return ChangaTakePersistenceResult.Assigned;
+    }
+
+    public async Task<ChangaCancelPersistenceResult> CancelAsync(Guid id)
+    {
+        context.ChangeTracker.Clear();
+        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        var changa = await context.Changas
+            .FromSqlInterpolated(
+                $"SELECT * FROM [Changas] WITH (UPDLOCK, ROWLOCK) WHERE [Id] = {id}")
+            .SingleOrDefaultAsync();
+        if (changa is null)
+        {
+            return ChangaCancelPersistenceResult.NotFound;
+        }
+
+        var assignmentExists = await context.Set<ChangaAssignment>()
+            .AnyAsync(item => item.ChangaId == id);
+        if (assignmentExists)
+        {
+            return ChangaCancelPersistenceResult.AlreadyAssigned;
+        }
+
+        if (changa.Status != ChangaStatus.Available)
+        {
+            return ChangaCancelPersistenceResult.NotAvailable;
+        }
+
+        var updated = await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE [Changas] SET [Status] = N'Cancelled' WHERE [Id] = {id} AND [Status] = N'Available' AND NOT EXISTS (SELECT 1 FROM [ChangaAssignment] WHERE [ChangaId] = {id})");
+        if (updated != 1)
+        {
+            return ChangaCancelPersistenceResult.NotAvailable;
+        }
+
+        await transaction.CommitAsync();
+        context.ChangeTracker.Clear();
+        return ChangaCancelPersistenceResult.Cancelled;
     }
 
     public async Task<ChangaCompletionTransitionResult> TransitionCompletionAsync(
