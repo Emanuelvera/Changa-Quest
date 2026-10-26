@@ -457,6 +457,49 @@ public sealed class ChangaManagerTests
         Assert.Equal(ChangaManagerStatus.NotAssigned, (await manager.GetCompletionAsync("author-id", unassigned.Id)).Status);
     }
 
+    [Fact]
+    public async Task Payment_declarations_are_separate_and_second_declaration_closes_changa()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        await manager.MarkDoneAsync("worker-id", changa.Id);
+        await manager.ConfirmCompletionAsync("author-id", changa.Id);
+
+        var paid = await manager.DeclarePaymentAsync("author-id", changa.Id);
+        var received = await manager.DeclarePaymentAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, paid.Status);
+        Assert.False(paid.PaymentDeclaration!.WorkerReceived);
+        Assert.Equal(ChangaManagerStatus.Success, received.Status);
+        Assert.True(received.PaymentDeclaration!.Closed);
+        Assert.Equal(ChangaStatus.Completed, changa.Status);
+        Assert.NotNull(changa.Assignment!.RequesterPaymentDeclaredAt);
+        Assert.NotNull(changa.Assignment.WorkerPaymentDeclaredAt);
+    }
+
+    [Fact]
+    public async Task Payment_declaration_rejects_wrong_state_outsider_and_duplicate()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+
+        await manager.TakeAsync("worker-id", changa.Id);
+        var beforeConfirmation = await manager.DeclarePaymentAsync("author-id", changa.Id);
+        var outsider = await manager.DeclarePaymentAsync("outsider-id", changa.Id);
+        await manager.MarkDoneAsync("worker-id", changa.Id);
+        await manager.ConfirmCompletionAsync("author-id", changa.Id);
+        var first = await manager.DeclarePaymentAsync("author-id", changa.Id);
+        var duplicate = await manager.DeclarePaymentAsync("author-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.PaymentDeclarationUnavailable, beforeConfirmation.Status);
+        Assert.Equal(ChangaManagerStatus.PaymentDeclarationForbidden, outsider.Status);
+        Assert.Equal(ChangaManagerStatus.Success, first.Status);
+        Assert.Equal(ChangaManagerStatus.PaymentDeclarationAlreadyRecorded, duplicate.Status);
+    }
+
     private sealed class TestTimeProvider(DateTimeOffset now) : TimeProvider
     {
         private DateTimeOffset current = now;
@@ -623,6 +666,41 @@ public sealed class ChangaManagerTests
             changa.Assignment.CompletionRespondedAt = respondedAt ?? changa.Assignment.CompletionRespondedAt;
             changa.Assignment.CompletionReviewCause = reviewCause;
             return Task.FromResult(ChangaCompletionTransitionResult.Updated);
+        }
+
+        public Task<ChangaPaymentDeclarationPersistenceResult> DeclarePaymentAsync(
+            Guid id, bool requester, DateTimeOffset declaredAt)
+        {
+            var changa = Changas.SingleOrDefault(item => item.Id == id);
+            var assignment = changa?.Assignment;
+            if (changa?.Status != ChangaStatus.Confirmed || assignment is null)
+            {
+                return Task.FromResult(ChangaPaymentDeclarationPersistenceResult.StateChanged);
+            }
+
+            if (requester)
+            {
+                if (assignment.RequesterPaymentDeclaredAt is not null)
+                {
+                    return Task.FromResult(ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared);
+                }
+                assignment.RequesterPaymentDeclaredAt = declaredAt;
+            }
+            else
+            {
+                if (assignment.WorkerPaymentDeclaredAt is not null)
+                {
+                    return Task.FromResult(ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared);
+                }
+                assignment.WorkerPaymentDeclaredAt = declaredAt;
+            }
+
+            if (assignment.RequesterPaymentDeclaredAt is not null &&
+                assignment.WorkerPaymentDeclaredAt is not null)
+            {
+                changa.Status = ChangaStatus.Completed;
+            }
+            return Task.FromResult(ChangaPaymentDeclarationPersistenceResult.Updated);
         }
 
         public Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone)

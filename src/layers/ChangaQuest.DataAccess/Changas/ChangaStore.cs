@@ -175,6 +175,55 @@ public sealed class ChangaStore(ApplicationDbContext context) : IChangaStore
         return ChangaCompletionTransitionResult.Updated;
     }
 
+    public async Task<ChangaPaymentDeclarationPersistenceResult> DeclarePaymentAsync(
+        Guid id, bool requester, DateTimeOffset declaredAt)
+    {
+        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        var changa = await context.Changas
+            .FromSqlInterpolated(
+                $"SELECT * FROM [Changas] WITH (UPDLOCK, ROWLOCK) WHERE [Id] = {id}")
+            .SingleOrDefaultAsync();
+        var assignment = await context.Set<ChangaAssignment>()
+            .SingleOrDefaultAsync(item => item.ChangaId == id);
+        if (changa is null || assignment is null)
+        {
+            return ChangaPaymentDeclarationPersistenceResult.StateChanged;
+        }
+
+        if (changa.Status != ChangaStatus.Confirmed)
+        {
+            return ChangaPaymentDeclarationPersistenceResult.StateChanged;
+        }
+
+        if (requester)
+        {
+            if (assignment.RequesterPaymentDeclaredAt is not null)
+            {
+                return ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared;
+            }
+            assignment.RequesterPaymentDeclaredAt = declaredAt;
+        }
+        else
+        {
+            if (assignment.WorkerPaymentDeclaredAt is not null)
+            {
+                return ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared;
+            }
+            assignment.WorkerPaymentDeclaredAt = declaredAt;
+        }
+
+        if (assignment.RequesterPaymentDeclaredAt is not null &&
+            assignment.WorkerPaymentDeclaredAt is not null)
+        {
+            changa.Status = ChangaStatus.Completed;
+        }
+
+        await context.SaveChangesAsync();
+        await transaction.CommitAsync();
+        context.ChangeTracker.Clear();
+        return ChangaPaymentDeclarationPersistenceResult.Updated;
+    }
+
     public async Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone)
     {
         var changa = await context.Changas

@@ -468,6 +468,37 @@ public sealed class ChangaManager(
     public Task<ChangaManagerResult> RejectCompletionAsync(string? userId, Guid id) =>
         RespondToCompletionAsync(userId, id, confirm: false);
 
+    public async Task<ChangaManagerResult> DeclarePaymentAsync(string? userId, Guid id)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.PaymentDeclarationForbidden);
+        if (changa.Status != ChangaStatus.Confirmed)
+        {
+            return new(ChangaManagerStatus.PaymentDeclarationUnavailable);
+        }
+
+        var result = await changaStore.DeclarePaymentAsync(
+            id, role == ChangaCoordinationRole.Requester, UtcNow);
+        if (result == ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared)
+        {
+            return new(ChangaManagerStatus.PaymentDeclarationAlreadyRecorded);
+        }
+        if (result == ChangaPaymentDeclarationPersistenceResult.StateChanged)
+        {
+            return new(ChangaManagerStatus.PaymentDeclarationUnavailable);
+        }
+
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return new(ChangaManagerStatus.Success,
+            PaymentDeclaration: ProjectPaymentDeclaration(changa));
+    }
+
     private async Task<ChangaManagerResult> RespondToCompletionAsync(string? userId, Guid id, bool confirm)
     {
         var access = await CheckCompletionAccessAsync(userId);
@@ -542,11 +573,18 @@ public sealed class ChangaManager(
             ChangaStatus.PendingResponse => "pending_response",
             ChangaStatus.Confirmed => "confirmed",
             ChangaStatus.CompletionReview => "completion_review",
+            ChangaStatus.Completed => "completed",
             _ => "assigned"
         },
         changa.Assignment?.CompletionRequestedAt,
         changa.Assignment?.CompletionDeadline,
         changa.Assignment?.CompletionReviewCause);
+
+    private static ChangaPaymentDeclarationView ProjectPaymentDeclaration(Changa changa) => new(
+        changa.Id,
+        changa.Assignment?.RequesterPaymentDeclaredAt is not null,
+        changa.Assignment?.WorkerPaymentDeclaredAt is not null,
+        changa.Status == ChangaStatus.Completed);
 
     private static ChangaCoordinationRole? GetCoordinationRole(Changa changa, string userId)
     {
@@ -676,6 +714,7 @@ public sealed class ChangaManager(
             ChangaStatus.PendingResponse => "pending_response",
             ChangaStatus.Confirmed => "confirmed",
             ChangaStatus.CompletionReview => "completion_review",
+            ChangaStatus.Completed => "completed",
             _ => "available"
         },
         changa.ReviewReason,
@@ -817,6 +856,9 @@ public enum ChangaManagerStatus
     CompletionForbidden,
     CompletionNotPending,
     CompletionInvalidState,
+    PaymentDeclarationForbidden,
+    PaymentDeclarationUnavailable,
+    PaymentDeclarationAlreadyRecorded,
     CancelForbidden
 }
 
@@ -835,7 +877,14 @@ public sealed record ChangaManagerResult(
     ChangaAssignmentView? Assignment = null,
     ChangaCoordinationView? Coordination = null,
     IReadOnlyList<ChangaCoordinationView>? Coordinations = null,
-    ChangaCompletionView? Completion = null);
+    ChangaCompletionView? Completion = null,
+    ChangaPaymentDeclarationView? PaymentDeclaration = null);
+
+public sealed record ChangaPaymentDeclarationView(
+    Guid ChangaId,
+    bool RequesterPaid,
+    bool WorkerReceived,
+    bool Closed);
 
 public sealed record ChangaAssignmentView(Guid Id, DateTimeOffset AssignedAt);
 

@@ -147,7 +147,10 @@ public class OpenApiContractTests
         Assert.Contains("completion_forbidden", contract, StringComparison.Ordinal);
         Assert.Contains("completion_not_pending", contract, StringComparison.Ordinal);
         Assert.Contains("completion_invalid_state", contract, StringComparison.Ordinal);
-        Assert.Contains("enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review]", contract, StringComparison.Ordinal);
+        Assert.Contains("enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review, completed]", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/{id}/payment-declaration:", contract, StringComparison.Ordinal);
+        Assert.Contains("ChangaPaymentDeclaration:", contract, StringComparison.Ordinal);
+        Assert.Contains("payment_declaration_forbidden", contract, StringComparison.Ordinal);
     }
 
     private static string ExtractOperation(string document, string start, string end)
