@@ -19,6 +19,11 @@ public class OpenApiContractTests
         Assert.Contains("/api/v1/changas:", contract, StringComparison.Ordinal);
         Assert.Contains("/api/v1/changas/{id}:", contract, StringComparison.Ordinal);
         Assert.Contains("/api/v1/changas/{id}/take:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/mine:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/changas/{id}/cancel:", contract, StringComparison.Ordinal);
+        Assert.Contains("changa_cancel_forbidden", contract, StringComparison.Ordinal);
+        Assert.Contains("changa_already_assigned", contract, StringComparison.Ordinal);
+        Assert.Contains("changa_not_available", contract, StringComparison.Ordinal);
         Assert.Contains("changa_already_assigned", contract, StringComparison.Ordinal);
         Assert.Contains("ChangaTakeResponse", contract, StringComparison.Ordinal);
         Assert.Contains("exactAddress:", contract, StringComparison.Ordinal);
@@ -57,6 +62,29 @@ public class OpenApiContractTests
         Assert.Contains("\"200\":", login, StringComparison.Ordinal);
         Assert.Contains("application/json:", login, StringComparison.Ordinal);
         Assert.Contains("#/components/schemas/LoginResponse", login, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Cancellation_contract_only_exposes_the_public_view_and_stable_conflicts()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+        var mine = ExtractOperation(
+            contract,
+            "  /api/v1/changas/mine:",
+            "  /api/v1/changas/categories:");
+        var cancel = ExtractOperation(
+            contract,
+            "  /api/v1/changas/{id}/cancel:",
+            "components:");
+
+        Assert.Contains("#/components/schemas/Changa", mine, StringComparison.Ordinal);
+        Assert.Contains("dirección exacta", mine, StringComparison.Ordinal);
+        Assert.Contains("operationId: cancelChanga", cancel, StringComparison.Ordinal);
+        Assert.Contains("changa_cancel_forbidden", cancel, StringComparison.Ordinal);
+        Assert.Contains("changa_already_assigned", cancel, StringComparison.Ordinal);
+        Assert.Contains("changa_not_available", cancel, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExactAddress", mine, StringComparison.Ordinal);
     }
 
     [Fact]

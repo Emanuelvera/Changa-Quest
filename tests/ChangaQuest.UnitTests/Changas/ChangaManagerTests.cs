@@ -9,6 +9,75 @@ namespace ChangaQuest.UnitTests.Changas;
 public sealed class ChangaManagerTests
 {
     [Fact]
+    public async Task Author_lists_only_own_unassigned_changas_without_private_address()
+    {
+        var available = AvailableChanga("account-id");
+        available.ExactAddress = "Dirección privada 123";
+        var cancelled = AvailableChanga("account-id");
+        cancelled.Status = ChangaStatus.Cancelled;
+        var assigned = AvailableChanga("account-id");
+        assigned.Assignment = new ChangaAssignment { WorkerId = "worker-id", Changa = assigned };
+        var store = new FakeChangaStore(available, cancelled, assigned, AvailableChanga("someone-else"));
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.ListMyUnassignedAsync("account-id");
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal(2, result.Changas!.Count);
+        Assert.Contains(result.Changas, item => item.Id == available.Id && item.Status == "available");
+        Assert.Contains(result.Changas, item => item.Id == cancelled.Id && item.Status == "cancelled");
+        Assert.DoesNotContain(typeof(ChangaPublicView).GetProperties(), property => property.Name == "ExactAddress");
+    }
+
+    [Fact]
+    public async Task Author_cancels_available_unassigned_changa_and_listing_keeps_cancelled_status()
+    {
+        var changa = AvailableChanga("account-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.CancelAsync("account-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal("cancelled", result.Changa!.Status);
+        Assert.Empty(await store.ListAvailableAsync());
+        Assert.Contains(await store.ListMyUnassignedAsync("account-id"), item => item.Id == changa.Id);
+    }
+
+    [Fact]
+    public async Task Non_author_cannot_cancel_even_when_changa_has_an_assignment()
+    {
+        var changa = AvailableChanga("author-id");
+        changa.Assignment = new ChangaAssignment { WorkerId = "worker-id", Changa = changa };
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        var result = await manager.CancelAsync("other-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.CancelForbidden, result.Status);
+        Assert.Equal(ChangaStatus.Available, changa.Status);
+        Assert.NotNull(changa.Assignment);
+    }
+
+    [Fact]
+    public async Task Author_gets_conflict_for_assigned_other_state_and_missing_changas()
+    {
+        var assigned = AvailableChanga("account-id");
+        assigned.Status = ChangaStatus.Assigned;
+        assigned.Assignment = new ChangaAssignment { WorkerId = "worker-id", Changa = assigned };
+        var pending = AvailableChanga("account-id");
+        pending.Status = ChangaStatus.PendingReview;
+        var store = new FakeChangaStore(assigned, pending);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+
+        Assert.Equal(ChangaManagerStatus.AlreadyAssigned, (await manager.CancelAsync("account-id", assigned.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.NotAvailable, (await manager.CancelAsync("account-id", pending.Id)).Status);
+        Assert.Equal(ChangaManagerStatus.NotFound, (await manager.CancelAsync("account-id", Guid.NewGuid())).Status);
+        Assert.Equal(ChangaStatus.Assigned, assigned.Status);
+        Assert.Equal(ChangaStatus.PendingReview, pending.Status);
+    }
+
+    [Fact]
     public async Task Eligible_account_creates_first_come_pending_changa_and_public_projection()
     {
         var store = new FakeChangaStore();
@@ -507,6 +576,11 @@ public sealed class ChangaManagerTests
         public Task<IReadOnlyList<Changa>> ListAvailableAsync() =>
             Task.FromResult<IReadOnlyList<Changa>>(Changas.Where(item => item.Status == ChangaStatus.Available).ToArray());
 
+        public Task<IReadOnlyList<Changa>> ListMyUnassignedAsync(string userId) =>
+            Task.FromResult<IReadOnlyList<Changa>>(Changas
+                .Where(item => item.AuthorId == userId && item.Assignment is null)
+                .ToArray());
+
         public Task<IReadOnlyList<Changa>> ListAvailableForSearchAsync() => ListAvailableAsync();
 
         public Task<Changa?> FindAvailableByIdAsync(Guid id) =>
@@ -593,6 +667,16 @@ public sealed class ChangaManagerTests
             changa.Status = ChangaStatus.Assigned;
             Assignments.Add(assignment);
             return Task.FromResult(ChangaTakePersistenceResult.Assigned);
+        }
+
+        public Task<ChangaCancelPersistenceResult> CancelAsync(Guid id)
+        {
+            var changa = Changas.SingleOrDefault(item => item.Id == id);
+            if (changa is null) return Task.FromResult(ChangaCancelPersistenceResult.NotFound);
+            if (changa.Assignment is not null) return Task.FromResult(ChangaCancelPersistenceResult.AlreadyAssigned);
+            if (changa.Status != ChangaStatus.Available) return Task.FromResult(ChangaCancelPersistenceResult.NotAvailable);
+            changa.Status = ChangaStatus.Cancelled;
+            return Task.FromResult(ChangaCancelPersistenceResult.Cancelled);
         }
     }
 

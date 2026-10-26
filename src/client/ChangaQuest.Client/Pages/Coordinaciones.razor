@@ -7,7 +7,7 @@
     <header class="brand">
         <p class="eyebrow">MIS CHANGAS</p>
         <h1>Coordinaciones</h1>
-        <p class="intro">Consultá las changas que tenés asignadas y sus datos privados autorizados.</p>
+        <p class="intro">Consultá tus coordinaciones y las publicaciones que todavía no tienen asignación.</p>
     </header>
 
     @if (Loading)
@@ -19,37 +19,80 @@
         <p class="field-error" role="alert">@Error</p>
         <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
     }
-    else if (Coordinations.Count == 0)
-    {
-        <p class="status" role="status">Todavía no tenés changas asignadas para coordinar.</p>
-    }
     else
     {
         <section class="changa-list" aria-label="Changas asignadas">
-            @foreach (var item in Coordinations)
+            <h2>Changas asignadas</h2>
+            @if (Coordinations.Count == 0)
             {
-                <article class="changa-card" @key="item.ChangaId">
-                    <h2>@item.Description</h2>
-                    <p>Participás como @(item.Role == "worker" ? "persona realizadora" : "persona solicitante").</p>
-                    @if (item.HasMutualConsent && !string.IsNullOrWhiteSpace(item.OtherPhone))
-                    {
-                        <p class="status" role="status">La otra parte aceptó compartir su teléfono ficticio: <strong>@item.OtherPhone</strong></p>
-                    }
-                    else
-                    {
-                        <p class="status" role="status">@(item.OtherPartyConsent == "accepted" ? "La otra parte aceptó; falta tu decisión para compartir los teléfonos." : "La otra parte no compartió su teléfono; los teléfonos siguen ocultos.")</p>
-                    }
-                    <a class="button-link" href="@($"/tareas/{item.ChangaId}/coordinacion")">Ver coordinación</a>
-                </article>
+                <p class="status" role="status">Todavía no tenés changas asignadas para coordinar.</p>
+            }
+            else
+            {
+                @foreach (var item in Coordinations)
+                {
+                    <article class="changa-card" @key="item.ChangaId">
+                        <h3>@item.Description</h3>
+                        <p>Participás como @(item.Role == "worker" ? "persona realizadora" : "persona solicitante").</p>
+                        @if (item.HasMutualConsent && !string.IsNullOrWhiteSpace(item.OtherPhone))
+                        {
+                            <p class="status" role="status">La otra parte aceptó compartir su teléfono ficticio: <strong>@item.OtherPhone</strong></p>
+                        }
+                        else
+                        {
+                            <p class="status" role="status">@(item.OtherPartyConsent == "accepted" ? "La otra parte aceptó; falta tu decisión para compartir los teléfonos." : "La otra parte no compartió su teléfono; los teléfonos siguen ocultos.")</p>
+                        }
+                        <a class="button-link" href="@($"/tareas/{item.ChangaId}/coordinacion")">Ver coordinación</a>
+                    </article>
+                }
             }
         </section>
+        <section class="changa-list" aria-label="Publicadas por mí">
+            <h2>Publicadas por mí</h2>
+            @if (MyPublications.Count == 0)
+            {
+                <p class="status" role="status">No tenés publicaciones propias sin asignación.</p>
+            }
+            else
+            {
+                @foreach (var item in MyPublications)
+                {
+                    <article class="changa-card" @key="item.Id">
+                        <h3>@item.Description</h3>
+                        <p>Estado: <strong>@DisplayStatus(item.Status)</strong></p>
+                        @if (item.Status == "available")
+                        {
+                            <button class="button secondary" type="button" aria-label="Cancelar publicación" @onclick="() => BeginCancellation(item.Id)">Cancelar publicación</button>
+                        }
+                        @if (PendingCancellationId == item.Id)
+                        {
+                            <div class="confirmation" role="group" aria-labelledby="cancel-title">
+                                <h4 id="cancel-title">¿Cancelar esta publicación?</h4>
+                                <p>La changa dejará de estar disponible. La publicación se conservará con estado cancelado y no se podrá tomar.</p>
+                                <button class="button" type="button" aria-label="Confirmar cancelación" disabled="@Cancelling" @onclick="ConfirmCancellationAsync">@(Cancelling ? "Cancelando…" : "Sí, cancelar publicación")</button>
+                                <button class="button secondary" type="button" aria-label="Volver sin cancelar" disabled="@Cancelling" @onclick="DismissCancellation">Volver sin cancelar</button>
+                            </div>
+                        }
+                    </article>
+                }
+            }
+        </section>
+        @if (!string.IsNullOrWhiteSpace(CancellationError))
+        {
+            <p class="field-error" role="alert">@CancellationError</p>
+            <button class="button secondary" type="button" @onclick="LoadAsync">Actualizar publicaciones</button>
+        }
     }
 </main>
 
 @code {
     private readonly List<CoordinationView> Coordinations = [];
+    private readonly List<PublicationView> MyPublications = [];
     private bool Loading = true;
     private string? Error;
+    private string? CancellationError;
+    private Guid? PendingCancellationId;
+    private bool Cancelling;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -69,6 +112,17 @@
             var items = await response.Content.ReadFromJsonAsync<List<CoordinationView>>();
             Coordinations.Clear();
             Coordinations.AddRange(items ?? []);
+
+            using var publicationsResponse = await Http.GetAsync("/api/v1/changas/mine");
+            if (!publicationsResponse.IsSuccessStatusCode)
+            {
+                Error = "No se pudieron cargar tus publicaciones. Iniciá sesión e intentá de nuevo.";
+                return;
+            }
+
+            var publications = await publicationsResponse.Content.ReadFromJsonAsync<List<PublicationView>>();
+            MyPublications.Clear();
+            MyPublications.AddRange(publications ?? []);
         }
         catch (HttpRequestException)
         {
@@ -88,6 +142,111 @@
         }
     }
 
+    private void BeginCancellation(Guid id)
+    {
+        PendingCancellationId = id;
+        CancellationError = null;
+    }
+
+    private void DismissCancellation()
+    {
+        PendingCancellationId = null;
+    }
+
+    private async Task ConfirmCancellationAsync()
+    {
+        if (PendingCancellationId is not { } id || Cancelling)
+        {
+            return;
+        }
+
+        Cancelling = true;
+        CancellationError = null;
+        try
+        {
+            using var response = await Http.PostAsync($"/api/v1/changas/{id}/cancel", null);
+            if (!response.IsSuccessStatusCode)
+            {
+                CancellationError = "No se pudo cancelar la publicación. Revisá su estado e intentá de nuevo.";
+                await RefreshPublicationsAfterFailureAsync();
+                return;
+            }
+
+            var updated = await response.Content.ReadFromJsonAsync<PublicationView>();
+            if (updated is null || updated.Id != id || updated.Status != "cancelled")
+            {
+                CancellationError = "No se pudo confirmar la cancelación. Actualizá tus publicaciones antes de volver a intentar.";
+                await RefreshPublicationsAfterFailureAsync();
+                return;
+            }
+
+            var index = MyPublications.FindIndex(item => item.Id == id);
+            if (index >= 0)
+            {
+                MyPublications[index] = updated;
+            }
+            PendingCancellationId = null;
+        }
+        catch (HttpRequestException)
+        {
+            CancellationError = "No se pudo conectar con el servidor. Revisá el estado e intentá de nuevo.";
+            await RefreshPublicationsAfterFailureAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            CancellationError = "La solicitud tardó demasiado. Revisá el estado e intentá de nuevo.";
+            await RefreshPublicationsAfterFailureAsync();
+        }
+        catch (JsonException)
+        {
+            CancellationError = "No se pudo leer la respuesta. Actualizá tus publicaciones antes de volver a intentar.";
+            await RefreshPublicationsAfterFailureAsync();
+        }
+        finally
+        {
+            Cancelling = false;
+        }
+    }
+
+    private async Task RefreshPublicationsAfterFailureAsync()
+    {
+        try
+        {
+            using var response = await Http.GetAsync("/api/v1/changas/mine");
+            if (response.IsSuccessStatusCode)
+            {
+                var publications = await response.Content.ReadFromJsonAsync<List<PublicationView>>();
+                if (publications is not null)
+                {
+                    MyPublications.Clear();
+                    MyPublications.AddRange(publications);
+                }
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (JsonException)
+        {
+        }
+    }
+
+    private static string DisplayStatus(string status) => status switch
+    {
+        "available" => "Disponible",
+        "cancelled" => "Cancelada",
+        "pending_review" => "Pendiente de revisión",
+        "rejected" => "No aprobada",
+        "assigned" => "Asignada",
+        "pending_response" => "Pendiente de respuesta",
+        "confirmed" => "Confirmada",
+        "completion_review" => "Pendiente de revisión",
+        _ => status
+    };
+
     private sealed record CoordinationView(
         Guid ChangaId,
         string Description,
@@ -96,4 +255,19 @@
         string OtherPartyConsent,
         bool HasMutualConsent,
         string? OtherPhone);
+
+    private sealed record PublicationView(
+        Guid Id,
+        string Description,
+        string CategoryId,
+        int Reward,
+        string Zone,
+        bool MaterialsNeeded,
+        string? MaterialsProvider,
+        string Status,
+        string? ReviewReason,
+        string AssignmentMode,
+        bool IsSample,
+        DateTimeOffset CreatedAt,
+        double DistanceKm);
 }

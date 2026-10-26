@@ -29,6 +29,10 @@ public static class ChangaEndpointExtensions
             .ProducesValidationProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
+        changas.MapGet("/mine", ListMyUnassignedAsync)
+            .Produces<IReadOnlyList<ChangaPublicView>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
         changas.MapGet("/{id:guid}", FindAsync)
             .Produces<ChangaPublicView>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -36,6 +40,12 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status404NotFound);
         changas.MapPost("/{id:guid}/take", TakeAsync)
             .Produces<ChangaTakeResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/cancel", CancelAsync)
+            .Produces<ChangaPublicView>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -178,6 +188,18 @@ public static class ChangaEndpointExtensions
                 StatusCodes.Status404NotFound,
                 "Changa no encontrada",
                 "No existe una changa disponible con ese identificador."),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static async Task<IResult> ListMyUnassignedAsync(
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.ListMyUnassignedAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Changas),
             _ => AccessProblem(result.Status)
         };
     }
@@ -351,6 +373,39 @@ public static class ChangaEndpointExtensions
                 StatusCodes.Status409Conflict,
                 "La changa ya no está disponible",
                 "La changa cambió de estado y ya no se puede tomar.",
+                "changa_not_available"),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static async Task<IResult> CancelAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.CancelAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Changa),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound,
+                "Changa no encontrada",
+                "No existe una changa con ese identificador.",
+                "changa_not_found"),
+            ChangaManagerStatus.CancelForbidden => Problem(
+                StatusCodes.Status403Forbidden,
+                "Acceso denegado",
+                "Solo la persona autora puede cancelar esta publicación.",
+                "changa_cancel_forbidden"),
+            ChangaManagerStatus.AlreadyAssigned => Problem(
+                StatusCodes.Status409Conflict,
+                "La changa ya fue asignada",
+                "No se puede cancelar una changa que ya tiene una asignación.",
+                "changa_already_assigned"),
+            ChangaManagerStatus.NotAvailable => Problem(
+                StatusCodes.Status409Conflict,
+                "La changa ya no está disponible",
+                "Solo se puede cancelar una changa disponible.",
                 "changa_not_available"),
             _ => AccessProblem(result.Status)
         };
