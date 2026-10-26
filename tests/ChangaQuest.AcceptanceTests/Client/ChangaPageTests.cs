@@ -473,7 +473,287 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
 
-        page.WaitForAssertion(() => Assert.Contains(TimeoutMessage, page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("La solicitud de coordinaciones tardó demasiado", page.Markup));
+    }
+
+    [Fact]
+    public void My_publications_require_explicit_confirmation_and_report_cancelled_status()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var cancelRequests = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel" && request.Method == HttpMethod.Post)
+            {
+                cancelRequests++;
+                return Task.FromResult(Json(
+                    $$"""{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"cancelled","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}"""));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        Assert.Contains("Zona: Centro", page.Markup);
+        Assert.Contains("Recompensa:", page.Markup);
+        Assert.Contains("aria-label=\"Cancelar publicación: Organizar una changa ficticia.\"", page.Markup);
+        Assert.DoesNotContain("Dirección privada", page.Markup);
+        page.FindAll("button").First(button => button.TextContent == "Cancelar publicación").Click();
+        page.WaitForAssertion(() => Assert.Contains("role=\"group\"", page.Markup));
+        Assert.Equal(0, cancelRequests);
+
+        page.Find("button[aria-label='Volver sin cancelar']").Click();
+        Assert.Equal(0, cancelRequests);
+        Assert.DoesNotContain("role=\"group\"", page.Markup);
+
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+        page.WaitForAssertion(() => Assert.Contains("Cancelada", page.Markup));
+        Assert.Equal(1, cancelRequests);
+        Assert.Empty(page.FindAll("button").Where(button => button.TextContent == "Cancelar publicación"));
+        Assert.Contains(page.FindAll("p[role='status']"), element => element.TextContent.Contains("Cancelada", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cancellation_http_failure_does_not_announce_success_and_refreshes_actual_state()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var mineRequests = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                mineRequests++;
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.Conflict, "La changa ya no está disponible."));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo cancelar la publicación", page.Markup));
+        Assert.DoesNotContain("Cancelada", page.Markup);
+        Assert.True(mineRequests >= 2);
+        page.FindAll("button")
+            .Single(button => button.TextContent.Contains("Actualizar publicaciones", StringComparison.Ordinal))
+            .Click();
+        page.WaitForAssertion(() => Assert.DoesNotContain("No se pudo cancelar la publicación", page.Markup));
+    }
+
+    [Fact]
+    public void Coordination_load_failure_does_not_hide_own_publications()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No disponible."));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Publicadas por mí", page.Markup);
+            Assert.Contains("Organizar una changa ficticia.", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Publication_load_failure_does_not_hide_coordinations()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json(
+                    """[{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Coordinar trabajo pendiente.","role":"worker","yourConsent":"pending","otherPartyConsent":"pending","hasMutualConsent":false,"otherPhone":null}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No disponible."));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Coordinar trabajo pendiente.", page.Markup);
+            Assert.Contains("No se pudieron cargar tus publicaciones.", page.Markup);
+        });
+    }
+
+    [Fact]
+    public async Task Other_publication_cannot_replace_confirmation_while_cancellation_is_pending()
+    {
+        const string firstId = "a1000000-0000-4000-8000-000000000001";
+        const string secondId = "a1000000-0000-4000-8000-000000000002";
+        var cancelResponse = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{firstId}}","description":"Primera publicación","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0},{"id":"{{secondId}}","description":"Segunda publicación","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{firstId}/cancel")
+            {
+                return cancelResponse.Task;
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Primera publicación", page.Markup));
+        page.FindAll("button").First(button => button.TextContent == "Cancelar publicación").Click();
+        var confirmTask = page.Find("button[aria-label='Confirmar cancelación']").ClickAsync();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Single(page.FindAll("[role='group']"));
+            Assert.All(
+                page.FindAll("button").Where(button => button.TextContent == "Cancelar publicación"),
+                button => Assert.True(button.HasAttribute("disabled")));
+        });
+
+        cancelResponse.SetResult(Json(
+            $$"""{"id":"{{firstId}}","description":"Primera publicación","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"cancelled","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}"""));
+        await confirmTask;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Cancellation_network_or_timeout_failure_is_reported_without_false_success(bool timeout)
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel")
+            {
+                return Task.FromException<HttpResponseMessage>(
+                    timeout ? new OperationCanceledException() : new HttpRequestException());
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+
+        var message = timeout ? "La solicitud tardó demasiado" : "No se pudo conectar con el servidor";
+        page.WaitForAssertion(() => Assert.Contains(message, page.Markup));
+        Assert.DoesNotContain("Cancelada", page.Markup);
+    }
+
+
+    [Fact]
+    public void Cancellation_reports_when_refresh_also_fails()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var mineRequests = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                mineRequests++;
+                if (mineRequests > 1)
+                {
+                    return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No disponible."));
+                }
+
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.Conflict, "La changa ya no está disponible."));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo actualizar el estado", page.Markup));
+        Assert.Contains("Actualizar publicaciones", page.Markup);
     }
 
     [Fact]
