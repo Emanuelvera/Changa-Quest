@@ -76,6 +76,25 @@ public sealed class ReportManager(
             : new ReportManagerResult(ReportManagerStatus.Success, Report: ToAdminView(report));
     }
 
+    public async Task<ReportManagerResult> ListCasesAsync(string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return new ReportManagerResult(ReportManagerStatus.Unauthenticated);
+        }
+
+        var isAdministrator = await accountStore.IsInRoleAsync(userId, ReportPolicy.AdministratorRole);
+        var reports = await reportStore.ListAsync(isAdministrator ? null : userId);
+        return new ReportManagerResult(
+            ReportManagerStatus.Success,
+            Cases: reports
+                .OrderByDescending(report => report.CreatedAt)
+                .ThenBy(report => report.Id)
+                .Select(report => new ReportCaseListItem(
+                    report.Id, report.ChangaId, report.Changa.Description, ToStatus(report.Status), report.CreatedAt))
+                .ToArray());
+    }
+
     public async Task<ReportManagerResult> GetCaseAsync(string? userId, Guid id)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -102,9 +121,17 @@ public sealed class ReportManager(
                 ToStatus(report.Status),
                 report.Status == ReportStatus.Pending,
                 report.Status == ReportStatus.Decided,
-                report.Responses.Where(response => response.AuthorId == userId).Select(ToView).ToArray(),
+                report.Responses.Where(response => response.AuthorId == userId)
+                    .OrderBy(response => response.CreatedAt)
+                    .ThenBy(response => response.Id)
+                    .Select(response => ToView(response, report))
+                    .ToArray(),
                 ToDecisionView(report),
-                report.Appeals.Where(appeal => appeal.AppellantId == userId).Select(ToView).ToArray()));
+                report.Appeals.Where(appeal => appeal.AppellantId == userId)
+                    .OrderBy(appeal => appeal.CreatedAt)
+                    .ThenBy(appeal => appeal.Id)
+                    .Select(appeal => ToView(appeal, report))
+                    .ToArray()));
     }
 
     public async Task<ReportManagerResult> SubmitResponseAsync(
@@ -137,7 +164,8 @@ public sealed class ReportManager(
         var result = await reportStore.AddResponseAsync(response);
         return result switch
         {
-            ReportMutationStatus.Updated => new ReportManagerResult(ReportManagerStatus.Success, Response: ToView(response)),
+            ReportMutationStatus.Updated => new ReportManagerResult(
+                ReportManagerStatus.Success, Response: ToView(response, report!)),
             ReportMutationStatus.NotFound => new ReportManagerResult(ReportManagerStatus.ReportNotFound),
             _ => new ReportManagerResult(ReportManagerStatus.CaseClosed)
         };
@@ -221,7 +249,8 @@ public sealed class ReportManager(
         var result = await reportStore.AddAppealAsync(appeal);
         return result switch
         {
-            ReportMutationStatus.Updated => new ReportManagerResult(ReportManagerStatus.Success, Appeal: ToView(appeal)),
+            ReportMutationStatus.Updated => new ReportManagerResult(
+                ReportManagerStatus.Success, Appeal: ToView(appeal, report!)),
             ReportMutationStatus.NotFound => new ReportManagerResult(ReportManagerStatus.ReportNotFound),
             _ => new ReportManagerResult(ReportManagerStatus.DecisionMissing)
         };
@@ -261,7 +290,7 @@ public sealed class ReportManager(
 
         return new ReportManagerResult(
             ReportManagerStatus.Success,
-            Appeal: ToView(savedAppeal));
+            Appeal: ToView(savedAppeal, savedReport!));
     }
 
     private async Task<(Report? Report, ReportManagerStatus? Error)> FindPartyReportAsync(string? userId, Guid id)
@@ -320,9 +349,15 @@ public sealed class ReportManager(
         report.Evidence,
         ToStatus(report.Status),
         report.CreatedAt,
-        report.Responses.Select(ToView).ToArray(),
+        report.Responses.OrderBy(response => response.CreatedAt)
+            .ThenBy(response => response.Id)
+            .Select(response => ToView(response, report))
+            .ToArray(),
         ToDecisionView(report),
-        report.Appeals.Select(ToView).ToArray());
+        report.Appeals.OrderBy(appeal => appeal.CreatedAt)
+            .ThenBy(appeal => appeal.Id)
+            .Select(appeal => ToView(appeal, report))
+            .ToArray());
 
     private static ReportDecisionView? ToDecisionView(Report report) =>
         report.DecidedAt is null || report.DecisionMakerId is null ||
@@ -335,19 +370,27 @@ public sealed class ReportManager(
                 report.EvidenceConsidered.Value,
                 report.DecidedAt.Value);
 
-    private static ReportResponseView ToView(ReportResponse response) =>
-        new(response.Id, response.AuthorId, response.Text, response.CreatedAt);
+    private static ReportResponseView ToView(ReportResponse response, Report report) =>
+        new(response.Id, response.AuthorId, PartyRole(report, response.AuthorId), response.Text, response.CreatedAt);
 
-    private static ReportAppealView ToView(ReportAppeal appeal) =>
+    private static ReportAppealView ToView(ReportAppeal appeal, Report report) =>
         new(
             appeal.Id,
             appeal.AppellantId,
+            PartyRole(report, appeal.AppellantId),
             appeal.Text,
             appeal.CreatedAt,
             appeal.ResolvedAt is null ? "pending" : "resolved",
             appeal.Resolution,
             appeal.ResolverId,
             appeal.ResolvedAt);
+
+    private static string PartyRole(Report report, string userId) =>
+        report.Changa.AuthorId == userId
+            ? "requester"
+            : report.Changa.Assignment?.WorkerId == userId
+                ? "worker"
+                : throw new InvalidOperationException("El evento pertenece a una persona ajena al caso.");
 
     private static bool TryValidateText(
         string field, string? value, int maximumLength, out string text, out Dictionary<string, string[]> errors)
@@ -392,11 +435,14 @@ public enum ReportManagerStatus
 }
 
 public sealed record ReportSubmittedView(Guid Id, string Status, DateTimeOffset CreatedAt);
-public sealed record ReportResponseView(Guid Id, string AuthorId, string Text, DateTimeOffset CreatedAt);
+public sealed record ReportCaseListItem(
+    Guid Id, Guid ChangaId, string ChangaDescription, string Status, DateTimeOffset CreatedAt);
+public sealed record ReportResponseView(
+    Guid Id, string AuthorId, string AuthorRole, string Text, DateTimeOffset CreatedAt);
 public sealed record ReportDecisionView(
     string ReviewerId, string Conclusion, string Reason, bool EvidenceConsidered, DateTimeOffset DecidedAt);
 public sealed record ReportAppealView(
-    Guid Id, string AppellantId, string Text, DateTimeOffset CreatedAt, string Status,
+    Guid Id, string AppellantId, string AppellantRole, string Text, DateTimeOffset CreatedAt, string Status,
     string? Resolution, string? ResolverId, DateTimeOffset? ResolvedAt);
 public sealed record ReportAdminView(
     Guid Id, Guid ChangaId, string ReporterId, string Reason, string? Evidence, string Status,
@@ -411,6 +457,7 @@ public sealed record ReportManagerResult(
     ReportSubmittedView? Submitted = null,
     ReportAdminView? Report = null,
     IReadOnlyDictionary<string, string[]>? Errors = null,
+    IReadOnlyList<ReportCaseListItem>? Cases = null,
     ReportPartyCaseView? Case = null,
     ReportResponseView? Response = null,
     ReportDecisionView? Decision = null,

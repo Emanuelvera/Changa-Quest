@@ -15,6 +15,9 @@ public static class ReportEndpointExtensions
             .WithTags("Reports")
             .RequireAuthorization();
 
+        reports.MapGet("", ListAsync)
+            .Produces<IReadOnlyList<ReportCaseListItem>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
         reports.MapPost("", SubmitAsync)
             .Produces<ReportSubmittedView>(StatusCodes.Status201Created)
             .ProducesValidationProblem(StatusCodes.Status400BadRequest)
@@ -110,6 +113,17 @@ public static class ReportEndpointExtensions
         };
     }
 
+    private static async Task<IResult> ListAsync(
+        ClaimsPrincipal principal, ReportManager manager)
+    {
+        var result = await manager.ListCasesAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        return result.Status switch
+        {
+            ReportManagerStatus.Success => Results.Ok(result.Cases),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
     private static async Task<IResult> GetCaseAsync(
         Guid id, ClaimsPrincipal principal, ReportManager manager)
     {
@@ -163,7 +177,7 @@ public static class ReportEndpointExtensions
             new ReportTextCommand(ReadString(request, "text")));
         return result.Status switch
         {
-            ReportManagerStatus.Success => Results.Created($"/api/v1/reports/{id}/appeals/{result.Appeal!.Id}", result.Appeal),
+            ReportManagerStatus.Success => Results.Ok(result.Appeal),
             ReportManagerStatus.Invalid => Results.ValidationProblem(result.Errors ?? new Dictionary<string, string[]>()),
             _ => MutationProblem(result.Status)
         };

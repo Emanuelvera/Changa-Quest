@@ -813,6 +813,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
   /api/v1/reports:
+    get:
+      operationId: listReportCases
+      summary: Lista los casos asociados a las partes autenticadas o toda la cola para administradores
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Casos accesibles sin motivo ni evidencia privada.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReportCaseListItem"
+        "401":
+          $ref: "#/components/responses/Problem"
     post:
       operationId: submitReport
       summary: Envía un reporte sobre una changa; queda pendiente de revisión administrativa y no se publica
@@ -867,6 +883,12 @@ paths:
           $ref: "#/components/responses/Problem"
         "403":
           description: La cuenta no es administradora; código report_forbidden. Se aplica aunque se conozca el identificador.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: No existe el reporte; código report_not_found.
           content:
             application/problem+json:
               schema:
@@ -981,8 +1003,8 @@ paths:
             schema:
               $ref: "#/components/schemas/ReportAppealRequest"
       responses:
-        "201":
-          description: Apelación asociada al caso.
+        "200":
+          description: Apelación registrada y asociada al caso.
           content:
             application/json:
               schema:
@@ -1035,12 +1057,6 @@ paths:
           $ref: "#/components/responses/Problem"
         "409":
           $ref: "#/components/responses/Problem"
-        "404":
-          description: No existe el reporte; código report_not_found.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
 components:
   securitySchemes:
     cookieAuth:
@@ -1433,6 +1449,15 @@ components:
         id: { type: string, format: uuid }
         status: { type: string, enum: [pending] }
         createdAt: { type: string, format: date-time }
+    ReportCaseListItem:
+      type: object
+      required: [id, changaId, changaDescription, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        changaId: { type: string, format: uuid }
+        changaDescription: { type: string }
+        status: { type: string, enum: [pending, decided] }
+        createdAt: { type: string, format: date-time }
     Report:
       type: object
       required: [id, changaId, reporterId, reason, status, createdAt, responses, decision, appeals]
@@ -1478,10 +1503,11 @@ components:
         text: { type: string, minLength: 1, maxLength: 2000 }
     ReportResponse:
       type: object
-      required: [id, authorId, text, createdAt]
+      required: [id, authorId, authorRole, text, createdAt]
       properties:
         id: { type: string, format: uuid }
         authorId: { type: string }
+        authorRole: { type: string, enum: [requester, worker] }
         text: { type: string }
         createdAt: { type: string, format: date-time }
     ReportDecisionRequest:
@@ -1507,10 +1533,11 @@ components:
         text: { type: string, minLength: 1, maxLength: 2000 }
     ReportAppeal:
       type: object
-      required: [id, appellantId, text, createdAt, status]
+      required: [id, appellantId, appellantRole, text, createdAt, status]
       properties:
         id: { type: string, format: uuid }
         appellantId: { type: string }
+        appellantRole: { type: string, enum: [requester, worker] }
         text: { type: string }
         createdAt: { type: string, format: date-time }
         status: { type: string, enum: [pending, resolved] }

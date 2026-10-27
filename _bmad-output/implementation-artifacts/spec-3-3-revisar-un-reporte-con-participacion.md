@@ -2,7 +2,7 @@
 title: 'Revisar un reporte con participación de las partes'
 type: 'feature'
 created: '2026-10-27'
-status: 'done'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'cb22b168d10095a65c0079f817e964c2271eaa54'
@@ -24,7 +24,7 @@ context:
 
 **Always:** Aplicar autorización en el servidor a cada consulta o mutación que exponga casos o evidencia. Registrar decisiones, motivos y evidencias consideradas. Dar oportunidad de respuesta a las partes antes de decidir. No mostrar plazos hasta que se aprueben.
 
-**Never:** Exponer reportes o evidencia a personas ajenas al caso, confiar en restricciones solo de interfaz, inventar categorías de sanción o políticas de evidencia, o incluir esta capacidad en la navegación operativa de la demo académica.
+**Never:** Exponer reportes o evidencia a personas ajenas al caso, confiar en restricciones solo de interfaz, inventar categorías de sanción o políticas de evidencia, o habilitar un flujo de revisión administrativa como parte de la demo académica. La excepción aprobada durante esta revisión es un índice seguro de casos y su enlace desde Coordinaciones; el índice no muestra motivo ni evidencia.
 
 **Decisiones acordadas:** La dependencia de Story 3.1 ya está integrada desde `origin/dev`. Las dos partes son la persona solicitante y la realizadora de la changa asociada; en esta historia, reportante/reportada refiere a esas partes. Se puede decidir después de ofrecer respuesta a ambas, sin exigir respuesta ni renuncia, temporizador o cierre automático. La decisión registra una conclusión y motivo en texto libre, sin sanciones ni cambios de estado de la changa. Solo se usa la evidencia textual ya asociada al reporte; la decisión registra si esa evidencia se consideró, sin nuevos adjuntos ni política adicional de retención. Cualquier cuenta con rol `Administrator`, incluida quien revisó, puede resolver una apelación. El estado, la decisión y las acciones se consultan en la vista del caso, sin notificación por canales no definidos.
 
@@ -73,10 +73,20 @@ context:
 
 Las decisiones de alcance constan en el bloque de intención. La historia registra solo la revisión y apelación; no implementa sanciones ni transiciones del ciclo de vida de una changa.
 
+**Ajuste de alcance aprobado durante la revisión:** agregar un índice de casos con resultados limitados a reportes del usuario participante o a la cola administrativa, y un enlace al índice desde Coordinaciones. No se agregan notificaciones externas ni plazos. Este acceso queda limitado a los casos vinculados; no expone motivo ni evidencia en el índice.
+
 ## Spec Change Log
+
+- Ajuste aprobado por la persona usuaria durante la revisión: se agrega descubrimiento de casos para que ambas partes encuentren su oportunidad de respuesta y administración pueda acceder a la cola sin notificaciones no definidas.
 
 ## Review Triage Log
 
+- Corregido: el contrato OpenAPI asignaba el 404 del reporte a la resolución de apelación y repetía la clave `404`; cada operación ahora declara su respuesta en el lugar correcto.
+- Corregido: las respuestas y apelaciones administrativas ahora muestran el rol de la parte y su fecha, en orden cronológico.
+- Corregido: el `Location` de apelación apuntaba a una ruta sin GET; la operación devuelve 200 sin una URL de recurso inexistente.
+- Aprobado e implementado: índice de casos con datos mínimos, cola administrativa y enlace desde Coordinaciones. Las partes obtienen solo casos de sus changas; el índice no incluye motivo ni evidencia.
+- Se mantiene: las partes ven sus propias respuestas y apelaciones; no se agrega una política de plazos, confirmación de lectura ni obligación de responder antes de decidir.
+- Se mantiene: el checkbox sin marcar significa que la evidencia no se consideró; no se agregan opciones ni reglas de evidencia.
 ## Design Notes
 
 Story 3.3 depende del contrato y modelo de reporte introducidos por Story 3.1. La historia no debe convertir la captura de una decisión en una transición de la changa ni en una sanción; las transiciones de realización pertenecen a Story 3.4 y a `ChangaManager`.

@@ -22,6 +22,24 @@ public sealed class ReportStore(ApplicationDbContext context) : IReportStore
                 .ThenInclude(changa => changa.Assignment)
             .SingleOrDefaultAsync(report => report.Id == id);
 
+    public async Task<IReadOnlyList<Report>> ListAsync(string? participantId)
+    {
+        IQueryable<Report> query = context.Reports.AsNoTracking()
+            .Include(report => report.Changa)
+                .ThenInclude(changa => changa.Assignment);
+        if (participantId is not null)
+        {
+            query = query.Where(report =>
+                report.Changa.AuthorId == participantId ||
+                report.Changa.Assignment != null && report.Changa.Assignment.WorkerId == participantId);
+        }
+
+        return await query
+            .OrderByDescending(report => report.CreatedAt)
+            .ThenBy(report => report.Id)
+            .ToListAsync();
+    }
+
     public async Task<ReportMutationStatus> AddResponseAsync(ReportResponse response)
     {
         context.ChangeTracker.Clear();

@@ -172,6 +172,65 @@ public sealed class ReportManagerTests
     }
 
     [Fact]
+    public async Task Case_index_returns_party_reports_and_the_full_administrative_queue_without_private_fields()
+    {
+        var fixture = new Fixture(administrators: ["admin"]);
+        var report = fixture.Reports.Seed("reporter", fixture.ChangaId, "Motivo privado", "Evidencia privada");
+
+        var partyCases = await fixture.Manager.ListCasesAsync("author");
+        var adminCases = await fixture.Manager.ListCasesAsync("admin");
+        var unrelatedCases = await fixture.Manager.ListCasesAsync("unrelated");
+        var anonymousCases = await fixture.Manager.ListCasesAsync(null);
+
+        Assert.Equal(ReportManagerStatus.Success, partyCases.Status);
+        Assert.Equal(report.Id, Assert.Single(partyCases.Cases!).Id);
+        Assert.Equal(report.Id, Assert.Single(adminCases.Cases!).Id);
+        Assert.Empty(unrelatedCases.Cases!);
+        Assert.Equal(ReportManagerStatus.Unauthenticated, anonymousCases.Status);
+        Assert.DoesNotContain(
+            typeof(ReportCaseListItem).GetProperties(),
+            property => property.Name is "Reason" or "Evidence");
+    }
+
+    [Fact]
+    public async Task Administrative_case_orders_and_identifies_responses_and_appeals_by_party()
+    {
+        var fixture = new Fixture(administrators: ["admin"]);
+        var report = fixture.Reports.Seed("reporter", fixture.ChangaId, "Motivo", "Evidencia");
+        report.Responses.Add(new ReportResponse
+        {
+            Id = Guid.NewGuid(), AuthorId = "worker", Text = "Respuesta de quien realiza",
+            CreatedAt = Now.AddMinutes(2)
+        });
+        report.Responses.Add(new ReportResponse
+        {
+            Id = Guid.NewGuid(), AuthorId = "author", Text = "Respuesta de quien solicita",
+            CreatedAt = Now.AddMinutes(1)
+        });
+        report.Appeals.Add(new ReportAppeal
+        {
+            Id = Guid.NewGuid(), AppellantId = "worker", Text = "Apelación de quien realiza",
+            CreatedAt = Now.AddMinutes(4)
+        });
+        report.Appeals.Add(new ReportAppeal
+        {
+            Id = Guid.NewGuid(), AppellantId = "author", Text = "Apelación de quien solicita",
+            CreatedAt = Now.AddMinutes(3)
+        });
+
+        var result = await fixture.Manager.GetAsync("admin", report.Id);
+
+        Assert.Equal(new[] { "requester", "worker" }, result.Report!.Responses.Select(response => response.AuthorRole));
+        Assert.Equal(new[] { "requester", "worker" }, result.Report.Appeals.Select(appeal => appeal.AppellantRole));
+        Assert.Equal(
+            [Now.AddMinutes(1), Now.AddMinutes(2)],
+            result.Report.Responses.Select(response => response.CreatedAt));
+        Assert.Equal(
+            [Now.AddMinutes(3), Now.AddMinutes(4)],
+            result.Report.Appeals.Select(appeal => appeal.CreatedAt));
+    }
+
+    [Fact]
     public async Task Parties_can_respond_until_decision_and_only_see_their_own_response()
     {
         var fixture = new Fixture(administrators: ["admin"]);
@@ -288,6 +347,13 @@ public sealed class ReportManagerTests
         }
 
         public Task<Report?> FindByIdAsync(Guid id) => Task.FromResult(Items.SingleOrDefault(report => report.Id == id));
+
+        public Task<IReadOnlyList<Report>> ListAsync(string? participantId) =>
+            Task.FromResult<IReadOnlyList<Report>>(Items
+                .Where(report => participantId is null ||
+                    report.Changa.AuthorId == participantId ||
+                    report.Changa.Assignment?.WorkerId == participantId)
+                .ToArray());
 
         public Task<ReportMutationStatus> AddResponseAsync(ReportResponse response)
         {

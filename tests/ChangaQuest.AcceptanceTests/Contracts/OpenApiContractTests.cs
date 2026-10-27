@@ -94,7 +94,7 @@ public class OpenApiContractTests
         var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
         var contract = File.ReadAllText(path);
         var submit = ExtractOperation(contract, "  /api/v1/reports:", "  /api/v1/reports/{id}:");
-        var read = ExtractOperation(contract, "  /api/v1/reports/{id}:", "components:");
+        var read = ExtractOperation(contract, "  /api/v1/reports/{id}:", "  /api/v1/reports/{id}/case:");
         var submitted = ExtractOperation(contract, "    ReportSubmitted:", "    Report:");
 
         Assert.Contains("operationId: submitReport", submit, StringComparison.Ordinal);
@@ -103,6 +103,7 @@ public class OpenApiContractTests
         Assert.Contains("operationId: getReport", read, StringComparison.Ordinal);
         Assert.Contains("report_forbidden", read, StringComparison.Ordinal);
         Assert.Contains("report_not_found", read, StringComparison.Ordinal);
+        Assert.Contains("\"404\":", read, StringComparison.Ordinal);
         Assert.DoesNotContain("reason", submitted, StringComparison.Ordinal);
         Assert.DoesNotContain("evidence", submitted, StringComparison.Ordinal);
     }
@@ -112,7 +113,15 @@ public class OpenApiContractTests
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
         var contract = File.ReadAllText(path);
+        var caseIndex = ExtractOperation(contract, "  /api/v1/reports:", "  /api/v1/reports/{id}:");
+        var appealResolution = ExtractOperation(
+            contract,
+            "  /api/v1/reports/{id}/appeals/{appealId}/resolution:",
+            "components:");
 
+        Assert.Contains("operationId: listReportCases", caseIndex, StringComparison.Ordinal);
+        Assert.Contains("ReportCaseListItem", caseIndex, StringComparison.Ordinal);
+        Assert.Equal(1, appealResolution.Split("\"404\":", StringSplitOptions.None).Length - 1);
         Assert.Contains("/api/v1/reports/{id}/case:", contract, StringComparison.Ordinal);
         Assert.Contains("/api/v1/reports/{id}/responses:", contract, StringComparison.Ordinal);
         Assert.Contains("/api/v1/reports/{id}/decision:", contract, StringComparison.Ordinal);

@@ -40,6 +40,33 @@ public sealed class ReportReviewPageTests : Bunit.TestContext
         });
     }
 
+    [Fact]
+    public void Administrative_case_shows_party_roles_and_event_timestamps()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath.EndsWith("/case", StringComparison.Ordinal) == true)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+            }
+
+            return Task.FromResult(Json(
+                """{"id":"78f84be8-2d21-4c69-aa73-75e1044101df","changaId":"b57abeb0-4b81-4abc-801e-c70f5e31fbd4","reporterId":"reporter","reason":"Motivo","evidence":"Evidencia","status":"pending","createdAt":"2026-10-25T10:00:00Z","responses":[{"id":"0f8715e2-999b-44cf-a367-24b1334f27f6","authorId":"author","authorRole":"requester","text":"Respuesta","createdAt":"2026-10-25T10:01:00Z"}],"decision":null,"appeals":[{"id":"ef36a524-0e91-4bd3-93bf-6c094845aedc","appellantId":"worker","appellantRole":"worker","text":"Apelación","createdAt":"2026-10-25T10:02:00Z","status":"pending","resolution":null,"resolverId":null,"resolvedAt":null}]}"""));
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+        Services.GetRequiredService<NavigationManager>().NavigateTo(
+            "http://localhost/reportes/78f84be8-2d21-4c69-aa73-75e1044101df");
+
+        var page = Render<ReportReview>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Persona solicitante", page.Markup, StringComparison.Ordinal);
+            Assert.Contains("Persona realizadora", page.Markup, StringComparison.Ordinal);
+            Assert.Contains("2026", page.Markup, StringComparison.Ordinal);
+        });
+    }
+
     private static HttpResponseMessage Json(string content) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(content, Encoding.UTF8, "application/json")

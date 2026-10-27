@@ -14,10 +14,57 @@ public sealed class ReportApiTests(AccountApiFactory factory) : IClassFixture<Ac
 
         using var submit = await client.PostAsJsonAsync("/api/v1/reports", new { changaId = Guid.NewGuid(), reason = "x" });
         using var read = await client.GetAsync($"/api/v1/reports/{Guid.NewGuid()}");
+        using var cases = await client.GetAsync("/api/v1/reports");
 
         Assert.Equal(HttpStatusCode.Unauthorized, submit.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, read.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, cases.StatusCode);
         Assert.Equal("application/problem+json", read.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Case_index_shows_only_participant_cases_or_the_administrative_queue()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var unrelated = await CreateVerifiedClientAsync();
+        var (admin, adminEmail, adminPassword) = await CreateVerifiedClientWithCredentialsAsync();
+        using var _ = admin;
+        var changaId = await CreateChangaAsync(author);
+        await SetChangaAvailableAsync(changaId);
+        using var taken = await worker.PostAsync($"/api/v1/changas/{changaId}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+        using var submitted = await author.PostAsJsonAsync(
+            "/api/v1/reports",
+            new { changaId, reason = "Motivo privado", evidence = "Evidencia privada" });
+        using var submittedJson = await JsonDocument.ParseAsync(await submitted.Content.ReadAsStreamAsync());
+        var reportId = submittedJson.RootElement.GetProperty("id").GetGuid();
+
+        await GrantAdministratorAsync(adminEmail);
+        using var login = await admin.PostAsJsonAsync(
+            "/api/v1/accounts/login", new { email = adminEmail, password = adminPassword });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+
+        using var authorCases = await author.GetAsync("/api/v1/reports");
+        using var workerCases = await worker.GetAsync("/api/v1/reports");
+        using var unrelatedCases = await unrelated.GetAsync("/api/v1/reports");
+        using var adminCases = await admin.GetAsync("/api/v1/reports");
+        using var authorJson = await JsonDocument.ParseAsync(await authorCases.Content.ReadAsStreamAsync());
+        using var workerJson = await JsonDocument.ParseAsync(await workerCases.Content.ReadAsStreamAsync());
+        using var unrelatedJson = await JsonDocument.ParseAsync(await unrelatedCases.Content.ReadAsStreamAsync());
+        using var adminJson = await JsonDocument.ParseAsync(await adminCases.Content.ReadAsStreamAsync());
+
+        Assert.Equal(HttpStatusCode.OK, authorCases.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, workerCases.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, unrelatedCases.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, adminCases.StatusCode);
+        Assert.Contains(authorJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == reportId);
+        Assert.Contains(workerJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == reportId);
+        Assert.Empty(unrelatedJson.RootElement.EnumerateArray());
+        Assert.Contains(adminJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == reportId);
+        var listContent = await adminCases.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("Motivo privado", listContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("Evidencia privada", listContent, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -198,7 +245,8 @@ public sealed class ReportApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var appeal = await author.PostAsJsonAsync(
             $"/api/v1/reports/{reportId}/appeals", new { text = "Apelo la decisión" });
         using var appealJson = await JsonDocument.ParseAsync(await appeal.Content.ReadAsStreamAsync());
-        Assert.Equal(HttpStatusCode.Created, appeal.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, appeal.StatusCode);
+        Assert.Null(appeal.Headers.Location);
         var appealId = appealJson.RootElement.GetProperty("id").GetGuid();
         using var unrelatedAppeal = await unrelated.PostAsJsonAsync(
             $"/api/v1/reports/{reportId}/appeals", new { text = "Apelación ajena" });

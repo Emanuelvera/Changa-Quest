@@ -22,6 +22,7 @@
         <section class="account-card" aria-labelledby="admin-case-heading">
             <h2 id="admin-case-heading">Revisión administrativa</h2>
             <p class="status">Estado: @StatusText(AdminReport.Status)</p>
+            <p>Reporte recibido: @AdminReport.CreatedAt.ToString("g")</p>
             <dl class="changa-details">
                 <div><dt>Motivo del reporte</dt><dd>@AdminReport.Reason</dd></div>
                 <div><dt>Evidencia textual asociada</dt><dd>@(AdminReport.Evidence ?? "No se adjuntó evidencia textual.")</dd></div>
@@ -37,7 +38,10 @@
                 <ul>
                     @foreach (var response in AdminReport.Responses)
                     {
-                        <li>@response.Text</li>
+                        <li>
+                            <strong>@PartyRoleText(response.AuthorRole)</strong> · @response.CreatedAt.ToString("g")
+                            <br />@response.Text
+                        </li>
                     }
                 </ul>
             }
@@ -48,6 +52,7 @@
                 <p><strong>Conclusión:</strong> @AdminReport.Decision.Conclusion</p>
                 <p><strong>Motivo:</strong> @AdminReport.Decision.Reason</p>
                 <p><strong>Evidencia considerada:</strong> @(AdminReport.Decision.EvidenceConsidered ? "Sí" : "No")</p>
+                <p><strong>Registrada:</strong> @AdminReport.Decision.DecidedAt.ToString("g")</p>
             }
             else
             {
@@ -75,6 +80,7 @@
                 @foreach (var appeal in AdminReport.Appeals)
                 {
                     <article class="changa-card" @key="appeal.Id">
+                        <p><strong>@PartyRoleText(appeal.AppellantRole)</strong> · @appeal.CreatedAt.ToString("g")</p>
                         <p>@appeal.Text</p>
                         @if (appeal.Status == "resolved")
                         {
@@ -115,7 +121,7 @@
                 <ul>
                     @foreach (var response in PartyCase.MyResponses)
                     {
-                        <li>@response.Text</li>
+                        <li>@response.CreatedAt.ToString("g") · @response.Text</li>
                     }
                 </ul>
             }
@@ -140,6 +146,7 @@
                     {
                         <article class="changa-card">
                             <p>@appeal.Text</p>
+                            <p>Presentada: @appeal.CreatedAt.ToString("g")</p>
                             <p>Estado: @(appeal.Status == "resolved" ? "Resuelta" : "Pendiente de resolución")</p>
                             @if (appeal.Resolution is not null)
                             {
@@ -272,6 +279,13 @@
     private static string StatusText(string status) =>
         status == "decided" ? "Decidido" : "Pendiente";
 
+    private static string PartyRoleText(string role) => role switch
+    {
+        "requester" => "Persona solicitante",
+        "worker" => "Persona realizadora",
+        _ => "Parte del caso"
+    };
+
     private sealed record ReportAdminView(
         Guid Id, Guid ChangaId, string ReporterId, string Reason, string? Evidence, string Status,
         DateTimeOffset CreatedAt, List<ReportResponseView> Responses,
@@ -279,10 +293,11 @@
     private sealed record ReportPartyCaseView(
         Guid Id, Guid ChangaId, string Status, bool CanRespond, bool CanAppeal,
         List<ReportResponseView> MyResponses, ReportDecisionView? Decision, List<ReportAppealView> MyAppeals);
-    private sealed record ReportResponseView(Guid Id, string AuthorId, string Text, DateTimeOffset CreatedAt);
+    private sealed record ReportResponseView(
+        Guid Id, string AuthorId, string AuthorRole, string Text, DateTimeOffset CreatedAt);
     private sealed record ReportDecisionView(
         string ReviewerId, string Conclusion, string Reason, bool EvidenceConsidered, DateTimeOffset DecidedAt);
     private sealed record ReportAppealView(
-        Guid Id, string AppellantId, string Text, DateTimeOffset CreatedAt, string Status,
+        Guid Id, string AppellantId, string AppellantRole, string Text, DateTimeOffset CreatedAt, string Status,
         string? Resolution, string? ResolverId, DateTimeOffset? ResolvedAt);
 }

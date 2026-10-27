@@ -6,6 +6,7 @@ public interface IReportStore
 {
     Task AddAsync(Report report);
     Task<Report?> FindByIdAsync(Guid id);
+    Task<IReadOnlyList<Report>> ListAsync(string? participantId);
     Task<ReportMutationStatus> AddResponseAsync(ReportResponse response);
     Task<ReportMutationStatus> RecordDecisionAsync(
         Guid reportId, string reviewerId, string conclusion, string reason,
