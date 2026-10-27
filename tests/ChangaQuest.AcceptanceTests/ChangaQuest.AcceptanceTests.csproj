@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\..\src\client\ChangaQuest.Client\wwwroot\css\app.css" Link="Assets\app.css" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\backend\ChangaQuest.Api\ChangaQuest.Api.csproj" />
     <ProjectReference Include="..\..\src\client\ChangaQuest.Client\ChangaQuest.Client.csproj" />
     <None Include="..\..\specs\api\openapi-v1.yaml" Link="Contracts\openapi-v1.yaml" CopyToOutputDirectory="PreserveNewest" />

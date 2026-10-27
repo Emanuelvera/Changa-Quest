@@ -3,6 +3,7 @@ using System.Text;
 using Bunit;
 using ChangaQuest.Client;
 using ChangaQuest.Client.Layout;
+using ChangaQuest.Client.Pages;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,6 +11,15 @@ namespace ChangaQuest.AcceptanceTests.Client;
 
 public sealed class ChangaPageTests : Bunit.TestContext
 {
+    [Fact]
+    public void Not_found_page_uses_the_shared_responsive_page_surface()
+    {
+        var page = Render<NotFound>();
+
+        Assert.Single(page.FindAll("main.page.not-found"));
+        Assert.Single(page.FindAll("h1"));
+    }
+
     [Fact]
     public void Main_navigation_keeps_board_and_publish_destinations_available()
     {
@@ -23,6 +33,10 @@ public sealed class ChangaPageTests : Bunit.TestContext
         Assert.Contains("Publicar changa", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("href=\"/perfil\"", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("Perfil", layout.Markup, StringComparison.Ordinal);
+        Assert.Contains("data-theme=\"night-guild\"", layout.Markup, StringComparison.Ordinal);
+        Assert.Equal(
+            ["Ver tareas", "Publicar changa", "Mis changas", "Perfil"],
+            layout.FindAll(".primary-nav a").Select(link => link.TextContent.Trim()).ToArray());
         Assert.Contains("Contenido de prueba", layout.Markup, StringComparison.Ordinal);
     }
 

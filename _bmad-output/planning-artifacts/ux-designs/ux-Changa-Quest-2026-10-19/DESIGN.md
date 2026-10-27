@@ -1,19 +1,26 @@
 ---
 name: Changa Quest
 description: Sistema visual para un tablón vecinal de changas con ambientación adulta inspirada en gremios de fantasía.
-status: draft
+status: final
 colors:
   surface-base: '#101923'
   surface-raised: '#1C2935'
+  surface-high: '#253441'
+  surface-selected: '#30271F'
+  success-surface: '#182B21'
+  warning-surface: '#302816'
+  danger-surface: '#321F23'
   board: '#30271F'
   ink-primary: '#F4EFE5'
   ink-secondary: '#CBD0D2'
+  ink-muted: '#AEB8BF'
   accent: '#E5A64B'
   on-accent: '#21180D'
-  success: '#67A878'
-  warning: '#E1AE4B'
-  danger: '#D47368'
+  success: '#8ED3A2'
+  warning: '#F3C868'
+  danger: '#F08B80'
   border: '#4B5965'
+  border-strong: '#71818D'
 typography:
   display:
     fontFamily: Georgia
@@ -33,6 +40,7 @@ typography:
 rounded:
   sm: 6px
   md: 12px
+  lg: 18px
   full: 9999px
 spacing:
   '1': 4px
@@ -55,63 +63,66 @@ sources:
   - {planning_artifacts}/briefs/brief-Changa-Quest-2026-10-16/addendum.md
   - {planning_artifacts}/prds/prd-Changa-Quest-2026-11-01/prd.md
   - {planning_artifacts}/prds/prd-Changa-Quest-2026-11-01/addendum.md
-updated: 2026-10-19
+updated: 2026-10-27
 ---
 
 ## Brand & Style
 
 Changa Quest makes a practical neighborhood task board feel like a welcoming guild noticeboard. The fantasy inspiration is an atmospheric frame, not role-play: the product should feel trustworthy and adult, while remaining approachable to someone opening it for the first time. Everyday language, clear hierarchy, and a small number of visible choices take priority over decoration.
 
-**[ASSUMPTION — visual starting point]** Use a deep, dusk-like canvas with warm paper and brass accents, echoing the supplied reference image. Keep the guild atmosphere in restrained landscape textures, framing, and material cues; do not make every screen a dark illustration. The user has not approved exact colors, a light theme, typography, or a component library.
+Use a deep, dusk-like canvas with warm paper and brass accents, echoing the supplied reference image. The approved direction uses a dark palette across the existing demo screens. Keep the guild atmosphere in restrained framing and material cues; do not make every screen a dark illustration.
 
 The board should feel like a curated list of real local requests, not a game inventory. Real task details, reward, zone, and materials are more prominent than category ornament. Avoid copying any specific fantasy franchise, characters, insignia, or artwork.
 
 ## Colors
 
-**[ASSUMPTION — provisional palette for discussion]** These semantic tokens translate the reference image into a quieter, readable starting palette; test contrast before implementation and revise with the team.
+These semantic tokens translate the reference into a quieter, readable palette. The selected foreground/background pairs were measured against the contrast objectives recorded in the implementation spec.
 
 - **Night Slate (`{colors.surface-base}`)** anchors the application without requiring a full-bleed fantasy scene.
 - **Raised Slate (`{colors.surface-raised}`)** separates navigation, forms, and task cards from the canvas.
+- **High Slate (`{colors.surface-high}`)** distinguishes nested content such as messages and secondary surfaces.
 - **Guild Board (`{colors.board}`)** is a warm, low-saturation surface for the central board or selected task panels. It should read as a material hint, not a photorealistic wooden texture behind every control.
-- **Warm Ink (`{colors.ink-primary}`)** carries the main readable text; **Muted Ink (`{colors.ink-secondary}`)** carries supporting text and metadata.
+- **Warm Ink (`{colors.ink-primary}`)** carries the main readable text; **Muted Ink (`{colors.ink-secondary}`) and Quiet Ink (`{colors.ink-muted}`)** carry supporting text and metadata.
 - **Brass (`{colors.accent}`)** marks the primary action and small guild-inspired details. It is not a substitute for status color and should not decorate every card.
 - **Signal colors (`{colors.success}`, `{colors.warning}`, `{colors.danger}`)** communicate task or safety states with text and iconography as well as color.
-- **Borders (`{colors.border}`)** define card and input edges without heavy outlines.
+- **Borders (`{colors.border}`, `{colors.border-strong}`)** define card and input edges without heavy outlines; stronger borders are reserved for controls and focus-adjacent surfaces.
 
 Do not place small text directly over detailed imagery. Reserve image overlays for decorative areas whose content is repeated in readable text.
 
+Measured sRGB contrast ratios include Warm Ink on Night Slate (15.46:1) and Raised Slate (12.92:1), Muted Ink on Raised Slate (9.52:1), Brass Ink on Brass (8.23:1), and the strongest control border on Raised Slate (3.69:1). Semantic success, warning, and error text each exceed 4.5:1 on their corresponding tinted surfaces.
+
 ## Typography
 
-**[ASSUMPTION]** Pair a familiar system sans-serif for all interface text with a restrained serif display face for occasional page headings. Use system fallbacks so the interface remains legible offline and across devices.
+Pair a familiar system sans-serif for all interface text with a restrained Georgia serif display face for page headings. Use system fallbacks so the interface remains legible offline and across devices.
 
 - Page titles may use `{typography.display}`; task names, descriptions, forms, prices, and navigation use `{typography.body}`.
 - Use `{typography.label}` for concise field labels and metadata. Do not rely on all-caps text for hierarchy.
 - Make the reward and task title easy to scan, but never let display typography push essential details below the first decision.
-- Support text resizing without clipping or hiding controls. Final type ramp and font availability remain to be confirmed during implementation.
+- Support text resizing without clipping or hiding controls. Headings use a responsive clamp; body copy and labels retain their documented minimum sizes.
 
 ## Layout & Spacing
 
-**[ASSUMPTION — responsive starting point]** Use a mobile-first, single-column flow on narrow screens and progressively add space for task cards on wider screens. The exact breakpoints, desktop navigation, and number of cards per row are not product decisions yet.
+Use a mobile-first, single-column flow on narrow screens and progressively add space for task cards on wider screens. The implemented layout switches to bottom navigation at 40rem and a three-column task board from 64rem; these are presentation breakpoints, not product rules.
 
 - Keep the first view focused on a clear page title, one primary action, a search/filter entry point, and a short list of nearby tasks.
-- Use `{spacing.1}` through `{spacing.6}` as a provisional 4px-based rhythm. Reserve larger gaps for page sections, not between every card.
+- Use `{spacing.1}` through `{spacing.6}` as a 4px-based rhythm. Reserve larger gaps for page sections, not between every card.
 - Keep task cards visually consistent and compact enough to compare; do not compress reward, location, or materials into tiny metadata.
 - On small screens, keep forms in one column and let the board scroll vertically. On wider screens, use additional columns only when titles and task facts remain readable.
 - Allow long descriptions and localized ARS amounts to wrap; do not truncate information needed to decide whether to accept a task.
 
 ## Elevation & Depth
 
-**[ASSUMPTION]** Establish hierarchy primarily through surface tone and spacing. Use a restrained border or shallow shadow for interactive cards and overlays; avoid glow, layered parallax, and game-like floating panels.
+Establish hierarchy primarily through surface tone and spacing. Use a restrained border or shallow shadow for interactive cards and overlays; avoid glow, layered parallax, and game-like floating panels.
 
 Landscape imagery may establish atmosphere on entry or in a limited hero area. It must not obscure actions, increase reading effort, or be necessary to understand where a task takes place.
 
 ## Shapes
 
-**[ASSUMPTION]** Use modest rounded corners (`{rounded.sm}` and `{rounded.md}`) for cards, fields, and buttons. Reserve `{rounded.full}` for compact status/category chips only. Keep the board’s paper/card character through framing, not ornate borders or scroll-like panels.
+Use modest rounded corners (`{rounded.sm}` and `{rounded.md}`) for cards, fields, and buttons. Reserve `{rounded.full}` for compact status/category chips only. Keep the board’s paper/card character through framing, not ornate borders or scroll-like panels.
 
 ## Components
 
-Visual properties below use provisional tokens. Behavioral rules belong to [EXPERIENCE.md](./EXPERIENCE.md); that document and this design contract take precedence over any illustrative mockup.
+Visual properties below use the defined tokens. Behavioral rules belong to [EXPERIENCE.md](./EXPERIENCE.md); that document and this design contract take precedence over any illustrative mockup.
 
 - **Primary action** — Brass background `{colors.accent}`, high-contrast text, `{rounded.md}`. One dominant action per screen; label it with a direct verb such as “Publicar changa” or “Ver tareas”.
 - **Task card** — Raised surface `{colors.surface-raised}`, `{rounded.md}`, thin `{colors.border}` border. Present task name, ARS reward, approximate zone, and materials information in a stable order. A task photo is optional and must not replace those facts.
