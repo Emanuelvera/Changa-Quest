@@ -55,8 +55,8 @@ development_status:
   2-5-cancelar-una-changa-asignada-por-acuerdo-mutuo: in-progress
   epic-2-retrospective: optional
 
-  epic-3: backlog
-  3-1-reportar-contenido-o-una-interacción: backlog
+  epic-3: in-progress
+  3-1-reportar-contenido-o-una-interacción: review
   3-2-solicitar-el-bloqueo-de-otra-cuenta: backlog
   3-3-revisar-un-reporte-con-participación-de-las-partes: backlog
   3-4-resolver-una-discrepancia-sobre-la-realización: backlog
