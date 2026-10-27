@@ -1,0 +1,101 @@
+@page "/reportes"
+@inject HttpClient Http
+
+<PageTitle>Casos de reporte · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">CASOS DE REPORTE</p>
+        <h1>Casos accesibles</h1>
+        <p class="intro">El índice solo muestra identificadores, estado y fecha; el detalle requiere autorización del caso.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando los casos…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
+    }
+    else if (Cases.Count == 0)
+    {
+        <p class="status" role="status">No hay casos accesibles para mostrar.</p>
+    }
+    else
+    {
+        <section class="changa-list" aria-label="Casos de reporte">
+            @foreach (var item in Cases)
+            {
+                <article class="changa-card" @key="item.Id">
+                    <h2>@item.ChangaDescription</h2>
+                    <p>Identificador del caso: @item.Id</p>
+                    <p>Estado: @StatusText(item.Status)</p>
+                    <p>Reporte recibido: @item.CreatedAt.ToString("g")</p>
+                    <a class="button-link" href="@($"/reportes/{item.Id}")">Abrir caso</a>
+                </article>
+            }
+        </section>
+    }
+</main>
+
+@code {
+    private readonly List<ReportCaseListItem> Cases = [];
+    private bool Loading = true;
+    private string? Error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.GetAsync("/api/v1/reports");
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Unauthorized => "Iniciá sesión para consultar tus casos.",
+                    System.Net.HttpStatusCode.Forbidden => "No tenés autorización para consultar casos.",
+                    _ => "No se pudieron cargar los casos. Intentá de nuevo."
+                };
+                return;
+            }
+
+            var items = await response.Content.ReadFromJsonAsync<List<ReportCaseListItem>>();
+            if (items is null)
+            {
+                Error = "No se pudo leer la respuesta de los casos.";
+                return;
+            }
+
+            Cases.Clear();
+            Cases.AddRange(items);
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta de los casos.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private static string StatusText(string status) =>
+        status == "decided" ? "Decidido" : "Pendiente";
+
+    private sealed record ReportCaseListItem(
+        Guid Id, Guid ChangaId, string ChangaDescription, string Status, DateTimeOffset CreatedAt);
+}

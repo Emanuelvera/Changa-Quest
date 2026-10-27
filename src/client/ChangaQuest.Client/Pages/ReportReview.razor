@@ -1,0 +1,303 @@
+@page "/reportes/{Id:guid}"
+@inject HttpClient Http
+
+<PageTitle>Revisión de reporte · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">CASO DE REPORTE</p>
+        <h1>Revisión y participación</h1>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando el caso…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+    }
+    else if (AdminReport is not null)
+    {
+        <section class="account-card" aria-labelledby="admin-case-heading">
+            <h2 id="admin-case-heading">Revisión administrativa</h2>
+            <p class="status">Estado: @StatusText(AdminReport.Status)</p>
+            <p>Reporte recibido: @AdminReport.CreatedAt.ToString("g")</p>
+            <dl class="changa-details">
+                <div><dt>Motivo del reporte</dt><dd>@AdminReport.Reason</dd></div>
+                <div><dt>Evidencia textual asociada</dt><dd>@(AdminReport.Evidence ?? "No se adjuntó evidencia textual.")</dd></div>
+            </dl>
+
+            <h3>Respuestas de las partes</h3>
+            @if (AdminReport.Responses.Count == 0)
+            {
+                <p class="status">Todavía no hay respuestas.</p>
+            }
+            else
+            {
+                <ul>
+                    @foreach (var response in AdminReport.Responses)
+                    {
+                        <li>
+                            <strong>@PartyRoleText(response.AuthorRole)</strong> · @response.CreatedAt.ToString("g")
+                            <br />@response.Text
+                        </li>
+                    }
+                </ul>
+            }
+
+            @if (AdminReport.Decision is not null)
+            {
+                <h3>Decisión registrada</h3>
+                <p><strong>Conclusión:</strong> @AdminReport.Decision.Conclusion</p>
+                <p><strong>Motivo:</strong> @AdminReport.Decision.Reason</p>
+                <p><strong>Evidencia considerada:</strong> @(AdminReport.Decision.EvidenceConsidered ? "Sí" : "No")</p>
+                <p><strong>Registrada:</strong> @AdminReport.Decision.DecidedAt.ToString("g")</p>
+            }
+            else
+            {
+                <form @onsubmit="SubmitDecisionAsync" @onsubmit:preventDefault>
+                    <h3>Registrar decisión</h3>
+                    <div class="field">
+                        <label for="decision-conclusion">Conclusión</label>
+                        <textarea id="decision-conclusion" @bind="Conclusion" required maxlength="1000"></textarea>
+                    </div>
+                    <div class="field">
+                        <label for="decision-reason">Motivo de la decisión</label>
+                        <textarea id="decision-reason" @bind="DecisionReason" required maxlength="2000"></textarea>
+                    </div>
+                    <label class="checkbox-field" for="evidence-considered">
+                        <input id="evidence-considered" type="checkbox" @bind="EvidenceConsidered" />
+                        <span>Consideré la evidencia textual disponible</span>
+                    </label>
+                    <button class="button" type="submit" disabled="@Saving">@(Saving ? "Guardando…" : "Registrar decisión")</button>
+                </form>
+            }
+
+            @if (AdminReport.Appeals.Count > 0)
+            {
+                <h3>Apelaciones</h3>
+                @foreach (var appeal in AdminReport.Appeals)
+                {
+                    <article class="changa-card" @key="appeal.Id">
+                        <p><strong>@PartyRoleText(appeal.AppellantRole)</strong> · @appeal.CreatedAt.ToString("g")</p>
+                        <p>@appeal.Text</p>
+                        @if (appeal.Status == "resolved")
+                        {
+                            <p><strong>Resolución:</strong> @appeal.Resolution</p>
+                        }
+                        else
+                        {
+                            <div class="field">
+                                <label for="@($"resolution-{appeal.Id}")">Resolución de la apelación</label>
+                                <textarea id="@($"resolution-{appeal.Id}")" @bind="ResolutionText" required maxlength="2000"></textarea>
+                            </div>
+                            <button class="button secondary" type="button" @onclick="() => ResolveAppealAsync(appeal.Id)" disabled="@Saving">
+                                Resolver apelación
+                            </button>
+                        }
+                    </article>
+                }
+            }
+        </section>
+    }
+    else if (PartyCase is not null)
+    {
+        <section class="account-card" aria-labelledby="party-case-heading">
+            <h2 id="party-case-heading">Estado del caso</h2>
+            <p class="status" role="status">@(PartyCase.Status == "decided" ? "La revisión tiene una decisión." : "La revisión está en curso.")</p>
+
+            @if (PartyCase.Decision is not null)
+            {
+                <h3>Decisión</h3>
+                <p><strong>Conclusión:</strong> @PartyCase.Decision.Conclusion</p>
+                <p><strong>Motivo:</strong> @PartyCase.Decision.Reason</p>
+                <p><strong>Evidencia textual considerada:</strong> @(PartyCase.Decision.EvidenceConsidered ? "Sí" : "No")</p>
+            }
+
+            @if (PartyCase.MyResponses.Count > 0)
+            {
+                <h3>Tus respuestas</h3>
+                <ul>
+                    @foreach (var response in PartyCase.MyResponses)
+                    {
+                        <li>@response.CreatedAt.ToString("g") · @response.Text</li>
+                    }
+                </ul>
+            }
+
+            @if (PartyCase.CanRespond)
+            {
+                <form @onsubmit="SubmitResponseAsync" @onsubmit:preventDefault>
+                    <div class="field">
+                        <label for="case-response">Tu respuesta</label>
+                        <textarea id="case-response" @bind="ResponseText" required maxlength="2000"></textarea>
+                    </div>
+                    <button class="button" type="submit" disabled="@Saving">@(Saving ? "Enviando…" : "Enviar respuesta")</button>
+                </form>
+            }
+
+            @if (PartyCase.CanAppeal)
+            {
+                @if (PartyCase.MyAppeals.Count > 0)
+                {
+                    <h3>Tus apelaciones</h3>
+                    @foreach (var appeal in PartyCase.MyAppeals)
+                    {
+                        <article class="changa-card">
+                            <p>@appeal.Text</p>
+                            <p>Presentada: @appeal.CreatedAt.ToString("g")</p>
+                            <p>Estado: @(appeal.Status == "resolved" ? "Resuelta" : "Pendiente de resolución")</p>
+                            @if (appeal.Resolution is not null)
+                            {
+                                <p><strong>Resolución:</strong> @appeal.Resolution</p>
+                            }
+                        </article>
+                    }
+                }
+                <form @onsubmit="SubmitAppealAsync" @onsubmit:preventDefault>
+                    <div class="field">
+                        <label for="case-appeal">Presentar una apelación</label>
+                        <textarea id="case-appeal" @bind="AppealText" required maxlength="2000"></textarea>
+                    </div>
+                    <button class="button" type="submit" disabled="@Saving">@(Saving ? "Enviando…" : "Apelar decisión")</button>
+                </form>
+            }
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Notice))
+    {
+        <p class="status" role="status">@Notice</p>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private bool Loading = true;
+    private bool Saving;
+    private string? Error;
+    private string? Notice;
+    private string ResponseText = string.Empty;
+    private string AppealText = string.Empty;
+    private string Conclusion = string.Empty;
+    private string DecisionReason = string.Empty;
+    private string ResolutionText = string.Empty;
+    private bool EvidenceConsidered;
+    private ReportAdminView? AdminReport;
+    private ReportPartyCaseView? PartyCase;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var partyResponse = await Http.GetAsync($"/api/v1/reports/{Id}/case");
+            if (partyResponse.IsSuccessStatusCode)
+            {
+                PartyCase = await partyResponse.Content.ReadFromJsonAsync<ReportPartyCaseView>();
+                AdminReport = null;
+                return;
+            }
+
+            using var adminResponse = await Http.GetAsync($"/api/v1/reports/{Id}");
+            if (adminResponse.IsSuccessStatusCode)
+            {
+                AdminReport = await adminResponse.Content.ReadFromJsonAsync<ReportAdminView>();
+                PartyCase = null;
+                return;
+            }
+
+            Error = "No tenés autorización para consultar este caso, o no existe.";
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la información del caso.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private Task SubmitResponseAsync() => SubmitAsync(
+        $"/api/v1/reports/{Id}/responses", new { text = ResponseText }, "La respuesta quedó asociada al caso.",
+        () => ResponseText = string.Empty);
+
+    private Task SubmitAppealAsync() => SubmitAsync(
+        $"/api/v1/reports/{Id}/appeals", new { text = AppealText }, "La apelación quedó asociada al caso.",
+        () => AppealText = string.Empty);
+
+    private Task SubmitDecisionAsync() => SubmitAsync(
+        $"/api/v1/reports/{Id}/decision",
+        new { conclusion = Conclusion, reason = DecisionReason, evidenceConsidered = EvidenceConsidered },
+        "La decisión quedó registrada.", () => { });
+
+    private async Task ResolveAppealAsync(Guid appealId)
+    {
+        await SubmitAsync(
+            $"/api/v1/reports/{Id}/appeals/{appealId}/resolution",
+            new { resolution = ResolutionText }, "La apelación quedó resuelta.", () => ResolutionText = string.Empty);
+    }
+
+    private async Task SubmitAsync(string path, object payload, string successMessage, Action reset)
+    {
+        Saving = true;
+        Notice = null;
+        Error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(path, payload);
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = "No se pudo guardar la acción. Revisá los datos y volvé a intentar.";
+                return;
+            }
+
+            reset();
+            Notice = successMessage;
+            await LoadAsync();
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. No se confirmó la acción.";
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private static string StatusText(string status) =>
+        status == "decided" ? "Decidido" : "Pendiente";
+
+    private static string PartyRoleText(string role) => role switch
+    {
+        "requester" => "Persona solicitante",
+        "worker" => "Persona realizadora",
+        _ => "Parte del caso"
+    };
+
+    private sealed record ReportAdminView(
+        Guid Id, Guid ChangaId, string ReporterId, string Reason, string? Evidence, string Status,
+        DateTimeOffset CreatedAt, List<ReportResponseView> Responses,
+        ReportDecisionView? Decision, List<ReportAppealView> Appeals);
+    private sealed record ReportPartyCaseView(
+        Guid Id, Guid ChangaId, string Status, bool CanRespond, bool CanAppeal,
+        List<ReportResponseView> MyResponses, ReportDecisionView? Decision, List<ReportAppealView> MyAppeals);
+    private sealed record ReportResponseView(
+        Guid Id, string AuthorId, string AuthorRole, string Text, DateTimeOffset CreatedAt);
+    private sealed record ReportDecisionView(
+        string ReviewerId, string Conclusion, string Reason, bool EvidenceConsidered, DateTimeOffset DecidedAt);
+    private sealed record ReportAppealView(
+        Guid Id, string AppellantId, string AppellantRole, string Text, DateTimeOffset CreatedAt, string Status,
+        string? Resolution, string? ResolverId, DateTimeOffset? ResolvedAt);
+}

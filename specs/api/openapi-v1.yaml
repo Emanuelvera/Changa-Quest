@@ -812,6 +812,251 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+  /api/v1/reports:
+    get:
+      operationId: listReportCases
+      summary: Lista los casos asociados a las partes autenticadas o toda la cola para administradores
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Casos accesibles sin motivo ni evidencia privada.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReportCaseListItem"
+        "401":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: submitReport
+      summary: Envía un reporte sobre una changa; queda pendiente de revisión administrativa y no se publica
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitReportRequest"
+      responses:
+        "201":
+          description: Reporte registrado con estado pending. No devuelve motivo ni evidencia.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportSubmitted"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          description: No existe la changa reportada; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/reports/{id}:
+    get:
+      operationId: getReport
+      summary: Lee un reporte y su evidencia; solo cuentas con el rol Administrator
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Caso completo para revisión administrativa, incluyendo respuestas, decisión y apelaciones.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no es administradora; código report_forbidden. Se aplica aunque se conozca el identificador.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: No existe el reporte; código report_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/reports/{id}/case:
+    get:
+      operationId: getReportCase
+      summary: Consulta el estado y decisión del caso como una de sus partes, sin evidencia privada
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Estado, resultado y acciones disponibles para la parte autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportCase"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /api/v1/reports/{id}/responses:
+    post:
+      operationId: submitReportResponse
+      summary: Registra la respuesta de una de las partes mientras el caso está abierto
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportResponseRequest"
+      responses:
+        "201":
+          description: Respuesta asociada al caso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+  /api/v1/reports/{id}/decision:
+    post:
+      operationId: decideReport
+      summary: Registra una conclusión administrativa sin aplicar sanciones ni modificar la changa
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportDecisionRequest"
+      responses:
+        "200":
+          description: Decisión registrada en el caso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportDecision"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+  /api/v1/reports/{id}/appeals:
+    post:
+      operationId: appealReportDecision
+      summary: Apela la decisión visible en el caso; solo puede hacerlo una de sus partes
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportAppealRequest"
+      responses:
+        "200":
+          description: Apelación registrada y asociada al caso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportAppeal"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+  /api/v1/reports/{id}/appeals/{appealId}/resolution:
+    post:
+      operationId: resolveReportAppeal
+      summary: Registra la resolución de una apelación por cualquier cuenta Administrator
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: appealId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportAppealResolutionRequest"
+      responses:
+        "200":
+          description: Apelación resuelta y registrada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportAppeal"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
 components:
   securitySchemes:
     cookieAuth:
@@ -1180,6 +1425,130 @@ components:
         email:
           type: string
           format: email
+    SubmitReportRequest:
+      type: object
+      required: [changaId, reason]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Obligatorio; se mide después de quitar espacios al inicio y al final.
+        evidence:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: Opcional; texto o enlace. No se aceptan archivos en esta versión.
+    ReportSubmitted:
+      type: object
+      required: [id, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending] }
+        createdAt: { type: string, format: date-time }
+    ReportCaseListItem:
+      type: object
+      required: [id, changaId, changaDescription, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        changaId: { type: string, format: uuid }
+        changaDescription: { type: string }
+        status: { type: string, enum: [pending, decided] }
+        createdAt: { type: string, format: date-time }
+    Report:
+      type: object
+      required: [id, changaId, reporterId, reason, status, createdAt, responses, decision, appeals]
+      properties:
+        id: { type: string, format: uuid }
+        changaId: { type: string, format: uuid }
+        reporterId: { type: string }
+        reason: { type: string }
+        evidence: { type: string, nullable: true }
+        status: { type: string, enum: [pending, decided] }
+        createdAt: { type: string, format: date-time }
+        responses:
+          type: array
+          items: { $ref: "#/components/schemas/ReportResponse" }
+        decision:
+          allOf: [{ $ref: "#/components/schemas/ReportDecision" }]
+          nullable: true
+        appeals:
+          type: array
+          items: { $ref: "#/components/schemas/ReportAppeal" }
+    ReportCase:
+      type: object
+      required: [id, changaId, status, canRespond, canAppeal, myResponses, decision, myAppeals]
+      properties:
+        id: { type: string, format: uuid }
+        changaId: { type: string, format: uuid }
+        status: { type: string, enum: [pending, decided] }
+        canRespond: { type: boolean }
+        canAppeal: { type: boolean }
+        myResponses:
+          type: array
+          items: { $ref: "#/components/schemas/ReportResponse" }
+        decision:
+          allOf: [{ $ref: "#/components/schemas/ReportDecision" }]
+          nullable: true
+        myAppeals:
+          type: array
+          items: { $ref: "#/components/schemas/ReportAppeal" }
+    ReportResponseRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 2000 }
+    ReportResponse:
+      type: object
+      required: [id, authorId, authorRole, text, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        authorId: { type: string }
+        authorRole: { type: string, enum: [requester, worker] }
+        text: { type: string }
+        createdAt: { type: string, format: date-time }
+    ReportDecisionRequest:
+      type: object
+      required: [conclusion, reason, evidenceConsidered]
+      properties:
+        conclusion: { type: string, minLength: 1, maxLength: 1000 }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+        evidenceConsidered: { type: boolean }
+    ReportDecision:
+      type: object
+      required: [reviewerId, conclusion, reason, evidenceConsidered, decidedAt]
+      properties:
+        reviewerId: { type: string }
+        conclusion: { type: string }
+        reason: { type: string }
+        evidenceConsidered: { type: boolean }
+        decidedAt: { type: string, format: date-time }
+    ReportAppealRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 2000 }
+    ReportAppeal:
+      type: object
+      required: [id, appellantId, appellantRole, text, createdAt, status]
+      properties:
+        id: { type: string, format: uuid }
+        appellantId: { type: string }
+        appellantRole: { type: string, enum: [requester, worker] }
+        text: { type: string }
+        createdAt: { type: string, format: date-time }
+        status: { type: string, enum: [pending, resolved] }
+        resolution: { type: string, nullable: true }
+        resolverId: { type: string, nullable: true }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+    ReportAppealResolutionRequest:
+      type: object
+      required: [resolution]
+      properties:
+        resolution: { type: string, minLength: 1, maxLength: 2000 }
     Problem:
       type: object
       properties:

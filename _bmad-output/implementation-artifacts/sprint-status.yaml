@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-20-2026 11:30
-last_updated: 10-26-2026 14:04
+last_updated: 10-27-2026 10:19
 project: Changa-Quest
 project_key: NOKEY
 tracking_system: file-system
@@ -55,9 +55,9 @@ development_status:
   2-5-cancelar-una-changa-asignada-por-acuerdo-mutuo: in-progress
   epic-2-retrospective: optional
 
-  epic-3: backlog
-  3-1-reportar-contenido-o-una-interacción: backlog
+  epic-3: in-progress
+  3-1-reportar-contenido-o-una-interacción: review
   3-2-solicitar-el-bloqueo-de-otra-cuenta: backlog
-  3-3-revisar-un-reporte-con-participación-de-las-partes: backlog
+  3-3-revisar-un-reporte-con-participación-de-las-partes: review
   3-4-resolver-una-discrepancia-sobre-la-realización: backlog
   epic-3-retrospective: optional

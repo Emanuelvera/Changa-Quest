@@ -1,5 +1,6 @@
 ﻿using ChangaQuest.Entities.Accounts;
 using ChangaQuest.Entities.Changas;
+using ChangaQuest.Entities.Reports;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,9 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 {
     public DbSet<Changa> Changas => Set<Changa>();
     public DbSet<ChangaCategory> ChangaCategories => Set<ChangaCategory>();
+    public DbSet<Report> Reports => Set<Report>();
+    public DbSet<ReportResponse> ReportResponses => Set<ReportResponse>();
+    public DbSet<ReportAppeal> ReportAppeals => Set<ReportAppeal>();
     public DbSet<ChangaRating> ChangaRatings => Set<ChangaRating>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -59,6 +63,48 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(assignment => assignment.WorkerPaymentDeclaredAt);
             entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
         });
+        builder.Entity<Report>(entity =>
+        {
+            entity.HasKey(report => report.Id);
+            entity.Property(report => report.ReporterId).HasMaxLength(450).IsRequired();
+            entity.Property(report => report.Reason).HasMaxLength(ReportPolicy.MaximumReasonLength).IsRequired();
+            entity.Property(report => report.Evidence).HasMaxLength(ReportPolicy.MaximumEvidenceLength);
+            entity.Property(report => report.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.Property(report => report.Conclusion).HasMaxLength(ReportPolicy.MaximumConclusionLength);
+            entity.Property(report => report.DecisionReason).HasMaxLength(ReportPolicy.MaximumDecisionReasonLength);
+            entity.Property(report => report.DecisionMakerId).HasMaxLength(450);
+            entity.Property(report => report.EvidenceConsidered);
+            entity.HasOne(report => report.Changa)
+                .WithMany()
+                .HasForeignKey(report => report.ChangaId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(report => report.ChangaId);
+        });
+        builder.Entity<ReportResponse>(entity =>
+        {
+            entity.HasKey(response => response.Id);
+            entity.Property(response => response.AuthorId).HasMaxLength(450).IsRequired();
+            entity.Property(response => response.Text).HasMaxLength(ReportPolicy.MaximumResponseLength).IsRequired();
+            entity.HasOne(response => response.Report)
+                .WithMany(report => report.Responses)
+                .HasForeignKey(response => response.ReportId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(response => response.ReportId);
+        });
+        builder.Entity<ReportAppeal>(entity =>
+        {
+            entity.HasKey(appeal => appeal.Id);
+            entity.Property(appeal => appeal.AppellantId).HasMaxLength(450).IsRequired();
+            entity.Property(appeal => appeal.Text).HasMaxLength(ReportPolicy.MaximumAppealLength).IsRequired();
+            entity.Property(appeal => appeal.Resolution).HasMaxLength(ReportPolicy.MaximumAppealLength);
+            entity.Property(appeal => appeal.ResolverId).HasMaxLength(450);
+            entity.HasOne(appeal => appeal.Report)
+                .WithMany(report => report.Appeals)
+                .HasForeignKey(appeal => appeal.ReportId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(appeal => appeal.ReportId);
+        });
+
         builder.Entity<ChangaCancellationRequest>(entity =>
         {
             entity.HasKey(request => request.Id);
