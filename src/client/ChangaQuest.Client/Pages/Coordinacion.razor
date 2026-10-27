@@ -24,6 +24,11 @@
         <section class="account-card" aria-labelledby="coordination-heading">
             <h2 id="coordination-heading">@Coordination.Description</h2>
             <a class="button-link" href="@($"/tareas/{Id}/finalizacion")">Ver finalización</a>
+            <a class="button-link" href="@($"/tareas/{Id}/calificacion")">Consultar disponibilidad para calificar</a>
+            @if (!string.IsNullOrWhiteSpace(Coordination.OtherPartyId))
+            {
+                <a class="button-link" href="@($"/perfil/{Uri.EscapeDataString(Coordination.OtherPartyId)}")">Ver perfil de la otra parte</a>
+            }
             @if (!string.IsNullOrWhiteSpace(Coordination.ExactAddress))
             {
                 <p><strong>Dirección exacta</strong>: @Coordination.ExactAddress</p>
@@ -232,6 +237,7 @@
         Guid ChangaId,
         string Description,
         string Role,
+        string? OtherPartyId,
         string YourConsent,
         string OtherPartyConsent,
         bool HasMutualConsent,

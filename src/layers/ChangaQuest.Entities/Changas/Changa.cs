@@ -19,6 +19,26 @@ public sealed class Changa
     public bool IsSample { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public ChangaAssignment? Assignment { get; set; }
+    public ICollection<ChangaCancellationRequest> CancellationRequests { get; set; } = [];
+}
+
+public sealed class ChangaCancellationRequest
+{
+    public Guid Id { get; set; }
+    public Guid ChangaId { get; set; }
+    public string RequestedById { get; set; } = string.Empty;
+    public string TargetId { get; set; } = string.Empty;
+    public ChangaCancellationRequestStatus Status { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? RespondedAt { get; set; }
+    public Changa Changa { get; set; } = null!;
+}
+
+public enum ChangaCancellationRequestStatus
+{
+    Pending,
+    Accepted,
+    Rejected
 }
 
 public enum ChangaStatus
@@ -106,5 +126,16 @@ public sealed class ChangaAssignment
     public string? CompletionReviewCause { get; set; }
     public DateTimeOffset? RequesterPaymentDeclaredAt { get; set; }
     public DateTimeOffset? WorkerPaymentDeclaredAt { get; set; }
+    public Changa Changa { get; set; } = null!;
+}
+
+public sealed class ChangaRating
+{
+    public Guid Id { get; set; }
+    public Guid ChangaId { get; set; }
+    public string RaterId { get; set; } = string.Empty;
+    public string RateeId { get; set; } = string.Empty;
+    public int Score { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
     public Changa Changa { get; set; } = null!;
 }

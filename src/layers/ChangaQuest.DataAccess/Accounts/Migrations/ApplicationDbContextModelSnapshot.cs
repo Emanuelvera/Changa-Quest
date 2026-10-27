@@ -235,6 +235,45 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.ToTable("ChangaAssignment");
                 });
 
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaCancellationRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChangaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RequestedById")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset?>("RespondedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangaId")
+                        .IsUnique()
+                        .HasFilter("[Status] = 'Pending'");
+
+                    b.ToTable("ChangaCancellationRequest");
+                });
+
             modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaCategory", b =>
                 {
                     b.Property<string>("Id")
@@ -328,6 +367,45 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.HasIndex("ChangaId");
 
                     b.ToTable("Reports");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaRating", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChangaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RateeId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("RaterId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RateeId");
+
+                    b.HasIndex("ChangaId", "RaterId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ChangaRatings_ChangaId_RaterId");
+
+                    b.ToTable("ChangaRatings", t =>
+                        {
+                            t.HasCheckConstraint("CK_ChangaRatings_Score", "[Score] >= 1 AND [Score] <= 5");
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
@@ -483,6 +561,27 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaCancellationRequest", b =>
+                {
+                    b.HasOne("ChangaQuest.Entities.Changas.Changa", "Changa")
+                        .WithMany("CancellationRequests")
+                        .HasForeignKey("ChangaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Changa");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaRating", b =>
+                {
+                    b.HasOne("ChangaQuest.Entities.Changas.Changa", "Changa")
+                        .WithMany()
+                        .HasForeignKey("ChangaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                    b.Navigation("Changa");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -537,6 +636,8 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
             modelBuilder.Entity("ChangaQuest.Entities.Changas.Changa", b =>
                 {
                     b.Navigation("Assignment");
+
+                    b.Navigation("CancellationRequests");
                 });
 #pragma warning restore 612, 618
         }

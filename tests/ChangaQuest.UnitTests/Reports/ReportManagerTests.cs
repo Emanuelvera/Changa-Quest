@@ -246,6 +246,15 @@ public sealed class ReportManagerTests
             throw new NotSupportedException();
         public Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId) =>
             throw new NotSupportedException();
+        public Task<bool> HasRatingAsync(Guid changaId, string raterId) => throw new NotSupportedException();
+        public Task<ChangaRatingPersistenceResult> AddRatingAsync(ChangaRating rating) =>
+            throw new NotSupportedException();
+        public Task<ChangaRatingAggregate> GetRatingAggregateAsync(string rateeId) =>
+            throw new NotSupportedException();
+        public Task<ChangaCancellationPersistenceResult> CreateCancellationRequestAsync(
+            Guid changaId, string requestedById, string targetId) => throw new NotSupportedException();
+        public Task<ChangaCancellationPersistenceResult> RespondCancellationRequestAsync(
+            Guid changaId, Guid requestId, string responderId, bool accept) => throw new NotSupportedException();
         public Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples) => throw new NotSupportedException();
     }
 

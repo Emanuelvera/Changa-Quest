@@ -12,6 +12,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<Changa> Changas => Set<Changa>();
     public DbSet<ChangaCategory> ChangaCategories => Set<ChangaCategory>();
     public DbSet<Report> Reports => Set<Report>();
+    public DbSet<ChangaRating> ChangaRatings => Set<ChangaRating>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -33,6 +34,10 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.HasOne(changa => changa.Assignment)
                 .WithOne(assignment => assignment.Changa)
                 .HasForeignKey<ChangaAssignment>(assignment => assignment.ChangaId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(changa => changa.CancellationRequests)
+                .WithOne(request => request.Changa)
+                .HasForeignKey(request => request.ChangaId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
         builder.Entity<ChangaCategory>(entity =>
@@ -68,6 +73,36 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                 .HasForeignKey(report => report.ChangaId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(report => report.ChangaId);
+        });
+
+        builder.Entity<ChangaCancellationRequest>(entity =>
+        {
+            entity.HasKey(request => request.Id);
+            entity.Property(request => request.RequestedById).HasMaxLength(450).IsRequired();
+            entity.Property(request => request.TargetId).HasMaxLength(450).IsRequired();
+            entity.Property(request => request.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.HasIndex(request => request.ChangaId)
+                .IsUnique()
+                .HasFilter("[Status] = 'Pending'");
+        });
+        builder.Entity<ChangaRating>(entity =>
+        {
+            entity.HasKey(rating => rating.Id);
+            entity.Property(rating => rating.RaterId).HasMaxLength(450).IsRequired();
+            entity.Property(rating => rating.RateeId).HasMaxLength(450).IsRequired();
+            entity.Property(rating => rating.Score).IsRequired();
+            entity.Property(rating => rating.CreatedAt).IsRequired();
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_ChangaRatings_Score",
+                "[Score] >= 1 AND [Score] <= 5"));
+            entity.HasOne(rating => rating.Changa)
+                .WithMany()
+                .HasForeignKey(rating => rating.ChangaId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(rating => new { rating.ChangaId, rating.RaterId })
+                .IsUnique()
+                .HasDatabaseName("IX_ChangaRatings_ChangaId_RaterId");
+            entity.HasIndex(rating => rating.RateeId);
         });
         builder.Entity<AppUser>()
             .Property(user => user.SearchLatitude)

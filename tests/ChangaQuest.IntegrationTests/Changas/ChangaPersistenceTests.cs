@@ -1,4 +1,4 @@
-﻿using ChangaQuest.DataAccess.Accounts;
+using ChangaQuest.DataAccess.Accounts;
 using ChangaQuest.DataAccess.Changas;
 using ChangaQuest.Entities.Changas;
 using Microsoft.EntityFrameworkCore;
@@ -138,6 +138,72 @@ public class ChangaPersistenceTests
             Assert.Equal(MaterialsProvider.Worker, stored.MaterialsProvider);
             Assert.Equal(1, await readContext.Changas.CountAsync(changa => changa.Id == sampleId));
             Assert.True((await readContext.Changas.SingleAsync(changa => changa.Id == sampleId)).IsSample);
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
+    public async Task Mutual_cancellation_acceptance_cancels_and_releases_assignment_atomically()
+    {
+        var databaseName = $"ChangaQuestCancellation_{Guid.NewGuid():N}";
+        var options = CreateOptions(databaseName);
+        var changaId = Guid.NewGuid();
+        try
+        {
+            await using var context = new ApplicationDbContext(options);
+            await context.Database.MigrateAsync();
+            var store = new ChangaStore(context);
+            await store.AddAsync(new Changa
+            {
+                Id = changaId,
+                Description = "Descripción asignada para cancelar.",
+                Reward = 5000,
+                Zone = "Centro",
+                ExactAddress = "Dirección privada 123",
+                MaterialsNeeded = false,
+                AssignmentMode = AssignmentMode.FirstCome,
+                Status = ChangaStatus.Assigned,
+                AuthorId = "requester-id",
+                Assignment = new ChangaAssignment
+                {
+                    Id = Guid.NewGuid(),
+                    ChangaId = changaId,
+                    WorkerId = "worker-id",
+                    AssignedAt = DateTimeOffset.UtcNow
+                },
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+
+            var proposal = await store.CreateCancellationRequestAsync(
+                changaId, "requester-id", "worker-id");
+            Assert.Equal(ChangaCancellationPersistenceStatus.Created, proposal.Status);
+
+            var duplicate = await store.CreateCancellationRequestAsync(
+                changaId, "worker-id", "requester-id");
+            Assert.Equal(ChangaCancellationPersistenceStatus.Conflict, duplicate.Status);
+            Assert.Equal(
+                1,
+                await context.Set<ChangaCancellationRequest>()
+                    .CountAsync(request => request.ChangaId == changaId));
+
+            var accepted = await store.RespondCancellationRequestAsync(
+                changaId, proposal.Request!.Id, "worker-id", true);
+            Assert.Equal(ChangaCancellationPersistenceStatus.Accepted, accepted.Status);
+
+            var cancelled = await context.Changas
+                .Include(changa => changa.Assignment)
+                .SingleAsync(changa => changa.Id == changaId);
+            Assert.Equal(ChangaStatus.Cancelled, cancelled.Status);
+            Assert.Null(cancelled.Assignment);
+            Assert.Equal(
+                ChangaCancellationRequestStatus.Accepted,
+                await context.Set<ChangaCancellationRequest>()
+                    .Where(request => request.ChangaId == changaId)
+                    .Select(request => request.Status)
+                    .SingleAsync());
         }
         finally
         {
@@ -480,6 +546,96 @@ public class ChangaPersistenceTests
                 changa.Status == ChangaStatus.CompletionReview ? "rejected" : null,
                 changa.Assignment.CompletionReviewCause);
             Assert.NotNull(changa.Assignment.CompletionRespondedAt);
+        }
+        finally
+        {
+            await DeleteDatabaseAsync(options);
+        }
+    }
+
+    [Fact]
+    public async Task Changa_rating_is_unique_per_rater_and_aggregate_includes_only_received_scores()
+    {
+        var options = CreateOptions($"ChangaRatingIntegrity_{Guid.NewGuid():N}");
+        var changaIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        try
+        {
+            await using (var context = new ApplicationDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                var store = new ChangaStore(context);
+                foreach (var id in changaIds)
+                {
+                    await store.AddAsync(new Changa
+                    {
+                        Id = id,
+                        Description = "Completar una changa cerrada para probar ratings.",
+                        CategoryId = "limpieza-domestica",
+                        Reward = 1000,
+                        Zone = "Centro",
+                        ExactAddress = "Dirección ficticia 123",
+                        MaterialsNeeded = false,
+                        AssignmentMode = AssignmentMode.FirstCome,
+                        Status = ChangaStatus.Available,
+                        AuthorId = "requester-id",
+                        CreatedAt = DateTimeOffset.UtcNow
+                    });
+                    Assert.Equal(
+                        ChangaTakePersistenceResult.Assigned,
+                        await store.TakeAsync(id, "worker-id"));
+                    var changa = await store.FindByIdAsync(id);
+                    changa!.Status = ChangaStatus.Completed;
+                    await store.SaveAsync(changa);
+                }
+            }
+
+            var attempts = await Task.WhenAll(
+                Task.Run(async () =>
+                {
+                    await using var context = new ApplicationDbContext(options);
+                    return await new ChangaStore(context).AddRatingAsync(new ChangaRating
+                    {
+                        Id = Guid.NewGuid(),
+                        ChangaId = changaIds[0],
+                        RaterId = "requester-id",
+                        RateeId = "worker-id",
+                        Score = 5,
+                        CreatedAt = DateTimeOffset.UtcNow
+                    });
+                }),
+                Task.Run(async () =>
+                {
+                    await using var context = new ApplicationDbContext(options);
+                    return await new ChangaStore(context).AddRatingAsync(new ChangaRating
+                    {
+                        Id = Guid.NewGuid(),
+                        ChangaId = changaIds[0],
+                        RaterId = "requester-id",
+                        RateeId = "worker-id",
+                        Score = 5,
+                        CreatedAt = DateTimeOffset.UtcNow
+                    });
+                }));
+
+            Assert.Single(attempts, result => result == ChangaRatingPersistenceResult.Added);
+            Assert.Single(attempts, result => result == ChangaRatingPersistenceResult.AlreadyExists);
+
+            await using (var context = new ApplicationDbContext(options))
+            {
+                var secondRating = await new ChangaStore(context).AddRatingAsync(new ChangaRating
+                {
+                    Id = Guid.NewGuid(),
+                    ChangaId = changaIds[1],
+                    RaterId = "requester-id",
+                    RateeId = "worker-id",
+                    Score = 3,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                Assert.Equal(ChangaRatingPersistenceResult.Added, secondRating);
+                var aggregate = await new ChangaStore(context).GetRatingAggregateAsync("worker-id");
+                Assert.Equal(4, aggregate.AverageRating);
+                Assert.Equal(2, aggregate.RatingCount);
+            }
         }
         finally
         {

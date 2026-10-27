@@ -20,7 +20,14 @@ public interface IChangaStore
         Guid id, bool requester, DateTimeOffset declaredAt);
     Task SetPhoneConsentAsync(Guid id, bool isAuthor, PhoneConsentStatus status, string? phone);
     Task<IReadOnlyList<ChangaAssignment>> ListAssignmentsForAccountAsync(string userId);
+    Task<bool> HasRatingAsync(Guid changaId, string raterId);
+    Task<ChangaRatingPersistenceResult> AddRatingAsync(ChangaRating rating);
+    Task<ChangaRatingAggregate> GetRatingAggregateAsync(string rateeId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
+    Task<ChangaCancellationPersistenceResult> CreateCancellationRequestAsync(
+        Guid changaId, string requestedById, string targetId);
+    Task<ChangaCancellationPersistenceResult> RespondCancellationRequestAsync(
+        Guid changaId, Guid requestId, string responderId, bool accept);
     Task<IReadOnlyList<ChangaCategory>> ListApprovedCategoriesAsync() =>
         Task.FromResult<IReadOnlyList<ChangaCategory>>(ChangaCategoryCatalog.Approved);
     Task<ChangaCategory?> FindCategoryAsync(string id) =>
@@ -37,6 +44,20 @@ public enum ChangaTakePersistenceResult
     NotFound
 }
 
+public sealed record ChangaCancellationPersistenceResult(
+    ChangaCancellationPersistenceStatus Status,
+    ChangaCancellationRequest? Request = null);
+
+public enum ChangaCancellationPersistenceStatus
+{
+    Created,
+    Accepted,
+    Rejected,
+    Forbidden,
+    Conflict,
+    NotFound
+}
+
 public enum ChangaCancelPersistenceResult
 {
     Cancelled,
@@ -50,6 +71,14 @@ public enum ChangaCompletionTransitionResult
     Updated,
     StateChanged
 }
+
+public enum ChangaRatingPersistenceResult
+{
+    Added,
+    AlreadyExists
+}
+
+public sealed record ChangaRatingAggregate(double? AverageRating, int RatingCount);
 
 public enum ChangaPaymentDeclarationPersistenceResult
 {

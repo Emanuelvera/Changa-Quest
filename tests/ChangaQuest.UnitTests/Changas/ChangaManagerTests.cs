@@ -1,4 +1,4 @@
-﻿using ChangaQuest.BusinessLogic.Changas;
+using ChangaQuest.BusinessLogic.Changas;
 using ChangaQuest.DataAccess.Accounts;
 using ChangaQuest.DataAccess.Changas;
 using ChangaQuest.Entities.Accounts;
@@ -372,6 +372,96 @@ public sealed class ChangaManagerTests
     }
 
     [Fact]
+    public async Task Participant_proposes_cancellation_without_releasing_assignment()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var result = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal("pending", result.CancellationRequest!.Status);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+        Assert.NotNull(changa.Assignment);
+    }
+
+    [Fact]
+    public async Task Other_part_accepts_and_cancels_atomically()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        var proposal = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        var result = await manager.RespondCancellationAsync(
+            "worker-id", changa.Id, proposal.CancellationRequest!.Id, true);
+
+        Assert.Equal(ChangaManagerStatus.Success, result.Status);
+        Assert.Equal("accepted", result.CancellationRequest!.Status);
+        Assert.Equal(ChangaStatus.Cancelled, changa.Status);
+        Assert.Null(changa.Assignment);
+        Assert.Empty(store.Assignments);
+    }
+
+    [Fact]
+    public async Task Rejection_keeps_assignment_and_allows_a_later_proposal()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        var first = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        var rejected = await manager.RespondCancellationAsync(
+            "worker-id", changa.Id, first.CancellationRequest!.Id, false);
+        var second = await manager.ProposeCancellationAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, rejected.Status);
+        Assert.Equal("rejected", rejected.CancellationRequest!.Status);
+        Assert.Equal(ChangaManagerStatus.Success, second.Status);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+        Assert.NotNull(changa.Assignment);
+    }
+
+    [Fact]
+    public async Task Outsider_cannot_propose_or_respond_to_cancellation()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+
+        var proposal = await manager.ProposeCancellationAsync("outsider-id", changa.Id);
+        Assert.Equal(ChangaManagerStatus.CancellationForbidden, proposal.Status);
+
+        var ownProposal = await manager.ProposeCancellationAsync("author-id", changa.Id);
+        var response = await manager.RespondCancellationAsync(
+            "outsider-id", changa.Id, ownProposal.CancellationRequest!.Id, true);
+        Assert.Equal(ChangaManagerStatus.CancellationForbidden, response.Status);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+    }
+
+    [Fact]
+    public async Task Second_pending_proposal_is_rejected_without_overwriting_persisted_request()
+    {
+        var changa = AvailableChanga("author-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(emailConfirmed: true, declaredAdult: true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        var first = await manager.ProposeCancellationAsync("author-id", changa.Id);
+
+        var second = await manager.ProposeCancellationAsync("worker-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.CancellationConflict, second.Status);
+        Assert.Single(store.CancellationRequests);
+        Assert.Equal(first.CancellationRequest!.Id, store.CancellationRequests[0].Id);
+        Assert.Equal(ChangaStatus.Assigned, changa.Status);
+    }
+
+    [Fact]
     public async Task Worker_marks_completion_and_requester_confirms_without_closing_changa()
     {
         var clock = new TestTimeProvider(new DateTimeOffset(2026, 10, 25, 15, 0, 0, TimeSpan.Zero));
@@ -455,6 +545,111 @@ public sealed class ChangaManagerTests
         var unassigned = AvailableChanga("author-id");
         store.Changas.Add(unassigned);
         Assert.Equal(ChangaManagerStatus.NotAssigned, (await manager.GetCompletionAsync("author-id", unassigned.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Closed_changa_allows_one_rating_per_part_and_profiles_return_only_aggregates()
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Completed;
+
+        var requesterRating = await manager.SubmitRatingAsync("requester-id", changa.Id, 5);
+        var duplicate = await manager.SubmitRatingAsync("requester-id", changa.Id, 4);
+        var workerProfile = await manager.GetRatingProfileAsync("worker-id", "worker-id");
+        var workerRating = await manager.SubmitRatingAsync("worker-id", changa.Id, 3);
+        var requesterProfile = await manager.GetRatingProfileAsync("requester-id", "requester-id");
+        var eligibility = await manager.GetRatingEligibilityAsync("requester-id", changa.Id);
+
+        Assert.Equal(ChangaManagerStatus.Success, requesterRating.Status);
+        Assert.Contains(store.Ratings, rating => rating.RaterId == "requester-id" && rating.RateeId == "worker-id");
+        Assert.Equal(ChangaManagerStatus.RatingAlreadySubmitted, duplicate.Status);
+        Assert.Equal(5, workerProfile.RatingProfile!.AverageRating);
+        Assert.Equal(1, workerProfile.RatingProfile.RatingCount);
+        Assert.DoesNotContain(typeof(RatingProfileView).GetProperties(), property =>
+            property.Name.Contains("Rater", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ChangaManagerStatus.Success, workerRating.Status);
+        Assert.Equal(3, requesterProfile.RatingProfile!.AverageRating);
+        Assert.Equal(1, requesterProfile.RatingProfile.RatingCount);
+        Assert.Equal(2, store.Ratings.Count);
+        Assert.False(eligibility.RatingEligibility!.CanRate);
+        Assert.True(eligibility.RatingEligibility.HasRated);
+    }
+
+    [Theory]
+    [InlineData(ChangaStatus.Assigned)]
+    [InlineData(ChangaStatus.Confirmed)]
+    [InlineData(ChangaStatus.Cancelled)]
+    [InlineData(ChangaStatus.CompletionReview)]
+    [InlineData(ChangaStatus.PendingReview)]
+    public async Task Rating_is_unavailable_without_normal_close(ChangaStatus status)
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = status;
+
+        var eligibility = await manager.GetRatingEligibilityAsync("requester-id", changa.Id);
+        var submission = await manager.SubmitRatingAsync("requester-id", changa.Id, 5);
+
+        Assert.False(eligibility.RatingEligibility!.CanRate);
+        Assert.Equal(ChangaManagerStatus.RatingNotAvailable, submission.Status);
+        Assert.Empty(store.Ratings);
+    }
+
+    [Fact]
+    public async Task Rating_eligibility_is_false_when_the_other_party_has_no_account_id()
+    {
+        var changa = AvailableChanga(string.Empty);
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Completed;
+
+        var eligibility = await manager.GetRatingEligibilityAsync("worker-id", changa.Id);
+
+        Assert.False(eligibility.RatingEligibility!.CanRate);
+        Assert.False(eligibility.RatingEligibility.HasRated);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(6)]
+    public async Task Rating_rejects_scores_outside_one_to_five(int? score)
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Completed;
+
+        var result = await manager.SubmitRatingAsync("requester-id", changa.Id, score);
+
+        Assert.Equal(ChangaManagerStatus.Invalid, result.Status);
+        Assert.Contains("score", result.Errors!.Keys);
+        Assert.Empty(store.Ratings);
+    }
+
+    [Fact]
+    public async Task Rating_rejects_nonparticipants_and_empty_profiles_have_no_average()
+    {
+        var changa = AvailableChanga("requester-id");
+        var store = new FakeChangaStore(changa);
+        var manager = new ChangaManager(store, new FakeAccountStore(true, true));
+        await manager.TakeAsync("worker-id", changa.Id);
+        changa.Status = ChangaStatus.Completed;
+
+        var outsider = await manager.SubmitRatingAsync("outsider-id", changa.Id, 5);
+        var profile = await manager.GetRatingProfileAsync("requester-id", "requester-id");
+
+        Assert.Equal(ChangaManagerStatus.RatingForbidden, outsider.Status);
+        Assert.Null(profile.RatingProfile!.AverageRating);
+        Assert.Equal(0, profile.RatingProfile.RatingCount);
+        Assert.Empty(store.Ratings);
     }
 
     [Fact]
@@ -620,6 +815,8 @@ public sealed class ChangaManagerTests
     {
         public List<Changa> Changas { get; set; } = [];
         public List<ChangaAssignment> Assignments { get; } = [];
+        public List<ChangaCancellationRequest> CancellationRequests { get; } = [];
+        public List<ChangaRating> Ratings { get; } = [];
         public bool RemoveChangaAfterCancellation { get; init; }
 
         public FakeChangaStore(params Changa[] changas) => Changas.AddRange(changas);
@@ -727,6 +924,28 @@ public sealed class ChangaManagerTests
         public Task<Changa?> FindByIdAsync(Guid id) =>
             Task.FromResult(Changas.SingleOrDefault(item => item.Id == id));
 
+        public Task<bool> HasRatingAsync(Guid changaId, string raterId) =>
+            Task.FromResult(Ratings.Any(rating => rating.ChangaId == changaId && rating.RaterId == raterId));
+
+        public Task<ChangaRatingPersistenceResult> AddRatingAsync(ChangaRating rating)
+        {
+            if (Ratings.Any(existing => existing.ChangaId == rating.ChangaId && existing.RaterId == rating.RaterId))
+            {
+                return Task.FromResult(ChangaRatingPersistenceResult.AlreadyExists);
+            }
+
+            Ratings.Add(rating);
+            return Task.FromResult(ChangaRatingPersistenceResult.Added);
+        }
+
+        public Task<ChangaRatingAggregate> GetRatingAggregateAsync(string rateeId)
+        {
+            var received = Ratings.Where(rating => rating.RateeId == rateeId).ToArray();
+            return Task.FromResult(new ChangaRatingAggregate(
+                received.Length == 0 ? null : received.Average(rating => (double)rating.Score),
+                received.Length));
+        }
+
         public Task<ChangaTakePersistenceResult> TakeAsync(Guid id, string workerId)
         {
             var changa = Changas.SingleOrDefault(item => item.Id == id);
@@ -759,6 +978,82 @@ public sealed class ChangaManagerTests
             changa.Status = ChangaStatus.Assigned;
             Assignments.Add(assignment);
             return Task.FromResult(ChangaTakePersistenceResult.Assigned);
+        }
+
+        public Task<ChangaCancellationPersistenceResult> CreateCancellationRequestAsync(
+            Guid changaId, string requestedById, string targetId)
+        {
+            var changa = Changas.SingleOrDefault(item => item.Id == changaId);
+            if (changa?.Assignment is null || changa.Status != ChangaStatus.Assigned)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Forbidden));
+            }
+
+            if (CancellationRequests.Any(item =>
+                    item.ChangaId == changaId &&
+                    item.Status == ChangaCancellationRequestStatus.Pending))
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Conflict));
+            }
+
+            var request = new ChangaCancellationRequest
+            {
+                Id = Guid.NewGuid(),
+                ChangaId = changaId,
+                RequestedById = requestedById,
+                TargetId = targetId,
+                Status = ChangaCancellationRequestStatus.Pending,
+                CreatedAt = DateTimeOffset.UtcNow,
+                Changa = changa
+            };
+            CancellationRequests.Add(request);
+            changa.CancellationRequests.Add(request);
+            return Task.FromResult(new ChangaCancellationPersistenceResult(
+                ChangaCancellationPersistenceStatus.Created, request));
+        }
+
+        public Task<ChangaCancellationPersistenceResult> RespondCancellationRequestAsync(
+            Guid changaId, Guid requestId, string responderId, bool accept)
+        {
+            var request = CancellationRequests.SingleOrDefault(item =>
+                item.Id == requestId && item.ChangaId == changaId);
+            var changa = Changas.SingleOrDefault(item => item.Id == changaId);
+            if (request is null || changa is null)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.NotFound));
+            }
+
+            if (request.TargetId != responderId)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Forbidden));
+            }
+
+            if (request.Status != ChangaCancellationRequestStatus.Pending ||
+                changa.Status != ChangaStatus.Assigned ||
+                changa.Assignment is null)
+            {
+                return Task.FromResult(new ChangaCancellationPersistenceResult(
+                    ChangaCancellationPersistenceStatus.Conflict));
+            }
+
+            request.Status = accept
+                ? ChangaCancellationRequestStatus.Accepted
+                : ChangaCancellationRequestStatus.Rejected;
+            request.RespondedAt = DateTimeOffset.UtcNow;
+            if (accept)
+            {
+                changa.Status = ChangaStatus.Cancelled;
+                Assignments.Remove(changa.Assignment);
+                changa.Assignment = null;
+            }
+
+            return Task.FromResult(new ChangaCancellationPersistenceResult(
+                accept ? ChangaCancellationPersistenceStatus.Accepted : ChangaCancellationPersistenceStatus.Rejected,
+                request));
         }
 
         public Task<ChangaCancelPersistenceResult> CancelAsync(Guid id)

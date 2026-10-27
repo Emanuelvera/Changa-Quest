@@ -1,0 +1,179 @@
+@page "/tareas/{Id:guid}/calificacion"
+@inject HttpClient Http
+
+<PageTitle>Calificar · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">CALIFICACIÓN</p>
+        <h1>Calificar a la otra parte</h1>
+        <p class="intro">Elegí una nota de 1 a 5, sin comentarios. La calificación no identifica quién la envió en el perfil.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Consultando si podés calificar…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
+    }
+    else if (Eligibility?.HasRated == true)
+    {
+        <p class="status" role="status">Ya enviaste tu calificación para esta changa.</p>
+    }
+    else if (Eligibility?.CanRate != true)
+    {
+        <p class="status" role="status">La calificación está disponible solo después del cierre normal.</p>
+    }
+    else if (Submitted)
+    {
+        <p class="success-message" role="status">Calificación guardada.</p>
+    }
+    else
+    {
+        <form @onsubmit="SubmitAsync" @onsubmit:preventDefault>
+            <fieldset class="field">
+                <legend>Elegí una nota</legend>
+                <p id="rating-hint" class="hint">Una nota baja indica una experiencia difícil; una nota alta, una experiencia positiva.</p>
+                <div class="rating-options" role="group" aria-describedby="rating-hint">
+                    @for (var value = 1; value <= 5; value++)
+                    {
+                        var score = value;
+                        <label for="@($"score-{score}")">
+                            <input id="@($"score-{score}")" type="radio" name="score" value="@score"
+                                   checked="@(SelectedScore == score)" @onchange="() => SelectedScore = score" />
+                            @score
+                        </label>
+                    }
+                </div>
+            </fieldset>
+            <button class="button" type="submit" disabled="@(SelectedScore is null || Saving)">
+                @(Saving ? "Guardando…" : "Enviar calificación")
+            </button>
+        </form>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ChangaRatingEligibility? Eligibility;
+    private bool Loading = true;
+    private bool Saving;
+    private bool Submitted;
+    private int? SelectedScore;
+    private string? Error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.GetAsync($"/api/v1/changas/{Id}/rating");
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = await ReadErrorAsync(response, "No se pudo consultar la calificación. Intentá de nuevo.");
+                return;
+            }
+
+            Eligibility = await response.Content.ReadFromJsonAsync<ChangaRatingEligibility>();
+            if (Eligibility is null)
+            {
+                Error = "No se pudo leer la disponibilidad de la calificación. Intentá de nuevo.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. Intentá de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (SelectedScore is null || Saving)
+        {
+            return;
+        }
+
+        Saving = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"/api/v1/changas/{Id}/rating",
+                new { score = SelectedScore.Value });
+            if (response.StatusCode == System.Net.HttpStatusCode.Created)
+            {
+                Submitted = true;
+                return;
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                await LoadAsync();
+                if (Eligibility?.HasRated == true)
+                {
+                    return;
+                }
+            }
+
+            Error = response.StatusCode == System.Net.HttpStatusCode.BadRequest
+                ? "Elegí una nota entera entre 1 y 5."
+                : await ReadErrorAsync(response, "No se pudo guardar la calificación. Intentá de nuevo.");
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. No confirmamos el cambio; podés intentarlo de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. Intentá de nuevo.";
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response, string fallback)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("detail", out var detail) &&
+                !string.IsNullOrWhiteSpace(detail.GetString()))
+            {
+                return detail.GetString()!;
+            }
+        }
+        catch (JsonException)
+        {
+            return fallback;
+        }
+
+        return fallback;
+    }
+
+    private sealed record ChangaRatingEligibility(Guid ChangaId, bool CanRate, bool HasRated);
+}
