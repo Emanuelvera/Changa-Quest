@@ -89,6 +89,25 @@ public class OpenApiContractTests
     }
 
     [Fact]
+    public void Report_contract_never_returns_reason_on_submit_and_restricts_reading_to_administrators()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+        var submit = ExtractOperation(contract, "  /api/v1/reports:", "  /api/v1/reports/{id}:");
+        var read = ExtractOperation(contract, "  /api/v1/reports/{id}:", "components:");
+        var submitted = ExtractOperation(contract, "    ReportSubmitted:", "    Report:");
+
+        Assert.Contains("operationId: submitReport", submit, StringComparison.Ordinal);
+        Assert.Contains("changa_not_found", submit, StringComparison.Ordinal);
+        Assert.Contains("ValidationProblem", submit, StringComparison.Ordinal);
+        Assert.Contains("operationId: getReport", read, StringComparison.Ordinal);
+        Assert.Contains("report_forbidden", read, StringComparison.Ordinal);
+        Assert.Contains("report_not_found", read, StringComparison.Ordinal);
+        Assert.DoesNotContain("reason", submitted, StringComparison.Ordinal);
+        Assert.DoesNotContain("evidence", submitted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Coordination_contract_describes_the_phone_consent_variants_and_private_responses()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
@@ -175,6 +194,21 @@ public class OpenApiContractTests
         Assert.Contains("averageRating:", profile, StringComparison.Ordinal);
         Assert.Contains("ratingCount:", profile, StringComparison.Ordinal);
         Assert.DoesNotContain("raterId:", profile, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Account_block_contract_describes_confirmation_boundary_and_stable_errors()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+
+        var block = ExtractOperation(contract, "  /api/v1/accounts/{id}/block:", "components:");
+        Assert.Contains("operationId: blockAccount", block, StringComparison.Ordinal);
+        Assert.Contains("account_blocked", block, StringComparison.Ordinal);
+        Assert.Contains("account_already_blocked", block, StringComparison.Ordinal);
+        Assert.Contains("cannot_block_self", block, StringComparison.Ordinal);
+        Assert.Contains("account_not_found", block, StringComparison.Ordinal);
+        Assert.Contains("no cancela ni resuelve", block, StringComparison.Ordinal);
     }
 
     private static string ExtractOperation(string document, string start, string end)

@@ -33,6 +33,35 @@
     {
         <p class="status" role="status">Todavía no hay calificaciones.</p>
     }
+
+    @if (!string.IsNullOrWhiteSpace(AccountId))
+    {
+        <section class="account-card" aria-labelledby="block-account-heading">
+            <h2 id="block-account-heading">No quiero futuras interacciones</h2>
+            <p>Podés registrar un bloqueo para esta cuenta.</p>
+            @if (ConfirmingBlock)
+            {
+                <div role="dialog" aria-modal="true" aria-labelledby="block-confirmation-heading">
+                    <h3 id="block-confirmation-heading">¿Bloquear esta cuenta?</h3>
+                    <p>El bloqueo no cancela ni resuelve una changa ya asignada.</p>
+                    <button class="button" type="button" @onclick="ConfirmBlockAsync">Confirmar bloqueo</button>
+                    <button class="button secondary" type="button" @onclick="CancelBlock">Cancelar</button>
+                </div>
+            }
+            else
+            {
+                <button class="button secondary" type="button" @onclick="BeginBlock">Bloquear cuenta</button>
+            }
+            @if (!string.IsNullOrWhiteSpace(BlockMessage))
+            {
+                <p class="status" role="status">@BlockMessage</p>
+            }
+            @if (!string.IsNullOrWhiteSpace(BlockError))
+            {
+                <p class="field-error" role="alert">@BlockError</p>
+            }
+        </section>
+    }
 </main>
 
 @code {
@@ -41,6 +70,9 @@
     private RatingProfile? Profile;
     private bool Loading = true;
     private string? Error;
+    private bool ConfirmingBlock;
+    private string? BlockMessage;
+    private string? BlockError;
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
@@ -84,6 +116,50 @@
         }
     }
 
+    private void BeginBlock()
+    {
+        ConfirmingBlock = true;
+        BlockMessage = null;
+        BlockError = null;
+    }
+
+    private void CancelBlock() => ConfirmingBlock = false;
+
+    private async Task ConfirmBlockAsync()
+    {
+        if (string.IsNullOrWhiteSpace(AccountId))
+            return;
+
+        try
+        {
+            using var response = await Http.PostAsync(
+                $"/api/v1/accounts/{Uri.EscapeDataString(AccountId)}/block", null);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AccountBlockResponse>();
+                BlockMessage = result?.Status == "account_already_blocked"
+                    ? "Esta cuenta ya estaba bloqueada."
+                    : "Cuenta bloqueada. Esto no cancela ni resuelve una changa ya asignada.";
+                ConfirmingBlock = false;
+                return;
+            }
+
+            BlockError = await ReadErrorAsync(response, "No se pudo registrar el bloqueo. Intentá de nuevo.");
+        }
+        catch (HttpRequestException)
+        {
+            BlockError = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            BlockError = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            BlockError = "No se pudo leer la respuesta. Intentá de nuevo.";
+        }
+    }
+
     private static async Task<string> ReadErrorAsync(HttpResponseMessage response, string fallback)
     {
         try
@@ -104,4 +180,5 @@
     }
 
     private sealed record RatingProfile(double? AverageRating, int RatingCount);
+    private sealed record AccountBlockResponse(string Status, string Detail);
 }

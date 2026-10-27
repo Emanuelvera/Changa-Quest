@@ -29,6 +29,7 @@ public static class AccountDataAccessServiceCollectionExtensions
                 options.Password.RequireNonAlphanumeric = false;
                 options.Lockout.AllowedForNewUsers = false;
             })
+            .AddRoles<IdentityRole>()
             .AddSignInManager()
             .AddEntityFrameworkStores<ApplicationDbContext>()
             .AddDefaultTokenProviders();
@@ -62,6 +63,7 @@ public static class AccountDataAccessServiceCollectionExtensions
         });
         services.AddAuthorization();
         services.AddScoped<IAccountIdentityStore, IdentityAccountStore>();
+        services.AddScoped<IAccountBlockStore, AccountBlockStore>();
         services.AddHostedService<AccountDatabaseMigrationService>();
 
         return services;

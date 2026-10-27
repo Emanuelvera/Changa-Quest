@@ -107,6 +107,12 @@ public sealed class IdentityAccountStore(
 
     public Task<AppUser?> FindByIdAsync(string userId) => userManager.FindByIdAsync(userId);
 
+    public async Task<bool> IsInRoleAsync(string userId, string role)
+    {
+        var user = await userManager.FindByIdAsync(userId);
+        return user is not null && await userManager.IsInRoleAsync(user, role);
+    }
+
     public async Task SaveSearchPreferenceAsync(AppUser user)
     {
         await userManager.UpdateAsync(user);

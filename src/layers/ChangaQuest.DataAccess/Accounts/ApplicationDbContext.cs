@@ -1,5 +1,6 @@
 ﻿using ChangaQuest.Entities.Accounts;
 using ChangaQuest.Entities.Changas;
+using ChangaQuest.Entities.Reports;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,7 +11,9 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 {
     public DbSet<Changa> Changas => Set<Changa>();
     public DbSet<ChangaCategory> ChangaCategories => Set<ChangaCategory>();
+    public DbSet<Report> Reports => Set<Report>();
     public DbSet<ChangaRating> ChangaRatings => Set<ChangaRating>();
+    public DbSet<AccountBlock> AccountBlocks => Set<AccountBlock>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -59,6 +62,20 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(assignment => assignment.WorkerPaymentDeclaredAt);
             entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
         });
+        builder.Entity<Report>(entity =>
+        {
+            entity.HasKey(report => report.Id);
+            entity.Property(report => report.ReporterId).HasMaxLength(450).IsRequired();
+            entity.Property(report => report.Reason).HasMaxLength(ReportPolicy.MaximumReasonLength).IsRequired();
+            entity.Property(report => report.Evidence).HasMaxLength(ReportPolicy.MaximumEvidenceLength);
+            entity.Property(report => report.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.HasOne<Changa>()
+                .WithMany()
+                .HasForeignKey(report => report.ChangaId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(report => report.ChangaId);
+        });
+
         builder.Entity<ChangaCancellationRequest>(entity =>
         {
             entity.HasKey(request => request.Id);
@@ -87,6 +104,14 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                 .IsUnique()
                 .HasDatabaseName("IX_ChangaRatings_ChangaId_RaterId");
             entity.HasIndex(rating => rating.RateeId);
+        });
+        builder.Entity<AccountBlock>(entity =>
+        {
+            entity.HasKey(block => block.Id);
+            entity.Property(block => block.BlockerId).HasMaxLength(450).IsRequired();
+            entity.Property(block => block.BlockedId).HasMaxLength(450).IsRequired();
+            entity.Property(block => block.CreatedAt).IsRequired();
+            entity.HasIndex(block => new { block.BlockerId, block.BlockedId }).IsUnique();
         });
         builder.Entity<AppUser>()
             .Property(user => user.SearchLatitude)
