@@ -21,6 +21,8 @@ public sealed class ChangaPageTests : Bunit.TestContext
         Assert.Contains("Ver tareas", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("href=\"/publicar\"", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("Publicar changa", layout.Markup, StringComparison.Ordinal);
+        Assert.Contains("href=\"/perfil\"", layout.Markup, StringComparison.Ordinal);
+        Assert.Contains("Perfil", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("Contenido de prueba", layout.Markup, StringComparison.Ordinal);
     }
 
@@ -33,6 +35,11 @@ public sealed class ChangaPageTests : Bunit.TestContext
             if (request.RequestUri?.AbsolutePath == "/api/v1/accounts/me")
             {
                 return Json("""{"email":"persona@example.test"}""");
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/categories")
+            {
+                return Json("""[{"id":"limpieza-domestica","name":"Limpieza doméstica"}]""");
             }
 
             if (request.RequestUri?.AbsolutePath == "/api/v1/changas" && request.Method == HttpMethod.Post)
@@ -50,6 +57,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var app = Render<App>();
         app.WaitForAssertion(() => Assert.Contains("Publicar changa", app.Markup));
+        app.Find("#category").Change("limpieza-domestica");
         app.Find("#description").Change("Ayuda para armar una biblioteca.");
         app.Find("#reward").Change("15000");
         app.Find("#zone").Change("Nueva Córdoba");
@@ -82,6 +90,11 @@ public sealed class ChangaPageTests : Bunit.TestContext
                 return Task.FromResult(Json("""{"email":"persona@example.test"}"""));
             }
 
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/categories")
+            {
+                return Task.FromResult(Json("""[{"id":"limpieza-domestica","name":"Limpieza doméstica"}]"""));
+            }
+
             if (request.RequestUri?.AbsolutePath == "/api/v1/changas" && request.Method == HttpMethod.Post)
             {
                 throw new HttpRequestException("Servidor no disponible.");
@@ -94,6 +107,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var app = Render<App>();
         app.WaitForAssertion(() => Assert.Contains("Publicar changa", app.Markup));
+        app.Find("#category").Change("limpieza-domestica");
         app.Find("#description").Change("Ayuda para armar una biblioteca.");
         app.Find("#reward").Change("15000");
         app.Find("#zone").Change("Nueva Cordoba");
@@ -120,6 +134,11 @@ public sealed class ChangaPageTests : Bunit.TestContext
                 return Json("""{"email":"persona@example.test"}""");
             }
 
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/categories")
+            {
+                return Json("""[{"id":"limpieza-domestica","name":"Limpieza doméstica"}]""");
+            }
+
             if (request.RequestUri?.AbsolutePath == "/api/v1/changas" && request.Method == HttpMethod.Post)
             {
                 submittedBody = await request.Content!.ReadAsStringAsync();
@@ -136,6 +155,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var app = Render<App>();
         app.WaitForAssertion(() => Assert.Contains("Publicar changa", app.Markup));
+        app.Find("#category").Change("limpieza-domestica");
         app.Find("#description").Change("Ayuda para armar una biblioteca.");
         app.Find("#reward").Change("15000");
         app.Find("#zone").Change("Nueva Cordoba");
@@ -299,7 +319,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
             Assert.Contains("Dirección ficticia 123", page.Markup, StringComparison.Ordinal);
             Assert.Contains("permanecen ocultos", page.Markup);
             Assert.Contains("teléfono ficticio", page.Markup);
-            Assert.DoesNotContain("<a", page.Markup, StringComparison.Ordinal);
+            Assert.Contains($"/tareas/{id}/finalizacion", page.Markup);
             Assert.Contains("label for=\"phone\"", page.Markup);
         });
 
@@ -377,6 +397,306 @@ public sealed class ChangaPageTests : Bunit.TestContext
         });
     }
 
+    [Fact]
+    public void Completion_page_marks_work_done_and_shows_a_clear_response_deadline()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var marked = false;
+        var handler = new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","status":"assigned","markedDoneAt":null,"responseDeadline":null,"reviewCause":null}""");
+            }
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.EndsWith("/completion/mark-done", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            marked = true;
+            return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","status":"pending_response","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Finalizacion>(parameters => parameters.Add(component => component.Id, id));
+        page.WaitForAssertion(() => Assert.Contains("Marcar como terminada", page.Markup));
+        page.Find("button").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.True(marked);
+            Assert.Contains("pendiente de respuesta", page.Markup);
+            Assert.Contains("La persona solicitante puede responder hasta", page.Markup);
+            Assert.Contains("2026-10-25T15:20:00", page.Markup);
+            Assert.Contains("no procesa ni verifica pagos", page.Markup);
+            Assert.DoesNotContain("Direcci\u00f3n", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Completion_page_confirms_or_rejects_without_claiming_closure_or_administrative_resolution()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var handler = new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"pending_response","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+            }
+            Assert.EndsWith("/completion/reject", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"completion_review","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":"rejected"}""");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Finalizacion>(parameters => parameters.Add(component => component.Id, id));
+        page.WaitForAssertion(() => Assert.Contains("Rechazar y dejar pendiente de", page.Markup));
+        page.Find("button.button.secondary").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("La changa", page.Markup);
+            Assert.Contains("no se reasigna", page.Markup);
+            Assert.DoesNotContain("administrativa", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Completion_page_confirm_button_posts_confirm_and_shows_confirmed_state()
+    {
+        var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+        var handler = new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"pending_response","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+            }
+            Assert.EndsWith("/completion/confirm", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"requester","status":"confirmed","markedDoneAt":"2026-10-25T15:00:00Z","responseDeadline":"2026-10-25T15:20:00Z","reviewCause":null}""");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Finalizacion>(parameters => parameters.Add(component => component.Id, id));
+        page.WaitForAssertion(() => Assert.Contains("Confirmar", page.Markup));
+        page.Find("button.button:not(.secondary)").Click();
+
+        page.WaitForAssertion(() => Assert.Contains("confirmada", page.Markup));
+    }
+
+    [Fact]
+    public void Rating_page_hides_submission_until_normal_close()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":false,"hasRated":false}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+
+        page.WaitForAssertion(() => Assert.Contains("solo después del cierre normal", page.Markup));
+        Assert.DoesNotContain("<form", page.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rating_page_reports_when_a_rating_was_already_submitted()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":false,"hasRated":true}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+
+        page.WaitForAssertion(() => Assert.Contains("Ya enviaste tu calificación", page.Markup));
+        Assert.DoesNotContain("<form", page.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rating_page_shows_load_errors_and_can_retry()
+    {
+        var requests = 0;
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+        {
+            requests++;
+            return Task.FromResult(requests == 1
+                ? Problem(HttpStatusCode.InternalServerError, "No se pudo cargar.")
+                : Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":true,"hasRated":false}"""));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo cargar.", page.Markup));
+        page.Find("button.secondary").Click();
+        page.WaitForAssertion(() => Assert.Contains("Elegí una nota", page.Markup));
+    }
+
+    [Fact]
+    public void Rating_page_shows_submission_errors_without_discarding_the_selected_score()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(Json(
+                    """{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":true,"hasRated":false}"""));
+            }
+
+            return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No se pudo guardar."));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+        page.WaitForElement("#score-4");
+        page.Find("#score-4").Change("4");
+        page.Find("form").Submit();
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo guardar.", page.Markup));
+        page.Find("button.secondary").Click();
+        page.WaitForElement("#score-4");
+        Assert.Contains("checked", page.Find("#score-4").OuterHtml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rating_page_posts_an_integer_score_and_reports_success()
+    {
+        string? submittedBody = null;
+        Services.AddSingleton(new HttpClient(new RecordingHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json("""{"changaId":"a1000000-0000-4000-8000-000000000001","canRate":true,"hasRated":false}""");
+            }
+
+            submittedBody = await request.Content!.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent(
+                    """{"changaId":"a1000000-0000-4000-8000-000000000001","score":5}""",
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        })) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Calificacion>(parameters =>
+            parameters.Add(component => component.Id, CoordinationId));
+        page.WaitForAssertion(() => Assert.Contains("Elegí una nota", page.Markup));
+        page.Find("#score-5").Change("5");
+        page.Find("form").Submit();
+
+        page.WaitForAssertion(() =>
+        {
+            using var body = System.Text.Json.JsonDocument.Parse(submittedBody!);
+            Assert.Equal(5, body.RootElement.GetProperty("score").GetInt32());
+            Assert.Contains("Calificación guardada", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Rating_page_reloads_and_discards_stale_eligibility_when_route_id_changes()
+    {
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var firstResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Services.AddSingleton(new HttpClient(new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith(firstId.ToString(), StringComparison.Ordinal))
+            {
+                return firstResponse.Task;
+            }
+
+            return Task.FromResult(Json(
+                $$"""{"changaId":"{{secondId}}","canRate":true,"hasRated":false}"""));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var navigation = Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo($"http://localhost/tareas/{firstId}/calificacion");
+        var app = Render<App>();
+        navigation.NavigateTo($"http://localhost/tareas/{secondId}/calificacion");
+
+        app.WaitForAssertion(() => Assert.Contains("Elegí una nota", app.Markup));
+        firstResponse.SetResult(Json(
+            $$"""{"changaId":"{{firstId}}","canRate":false,"hasRated":false}"""));
+        app.WaitForAssertion(() => Assert.Contains("Elegí una nota", app.Markup));
+        Assert.DoesNotContain("solo después del cierre normal", app.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Profile_page_shows_empty_state_without_fabricating_average()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"averageRating":null,"ratingCount":0}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Perfil>();
+
+        page.WaitForAssertion(() => Assert.Contains("Todavía no hay calificaciones", page.Markup));
+        Assert.DoesNotContain("Promedio:", page.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Profile_page_shows_only_average_and_rating_count()
+    {
+        Services.AddSingleton(new HttpClient(new RecordingHandler(_ =>
+            Task.FromResult(Json("""{"averageRating":4.5,"ratingCount":2}"""))))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var page = Render<ChangaQuest.Client.Pages.Perfil>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Promedio:", page.Markup);
+            Assert.Contains("4,5", page.Markup);
+            Assert.Contains("Cantidad:", page.Markup);
+            Assert.Contains(">2<", page.Markup);
+            Assert.DoesNotContain("evaluador", page.Markup, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void Profile_page_does_not_replace_current_profile_with_a_stale_response()
+    {
+        const string firstAccountId = "account-a";
+        const string secondAccountId = "account-b";
+        var firstResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Services.AddSingleton(new HttpClient(new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith(firstAccountId, StringComparison.Ordinal))
+            {
+                return firstResponse.Task;
+            }
+
+            return Task.FromResult(Json("""{"averageRating":2,"ratingCount":1}"""));
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+
+        var navigation = Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo($"http://localhost/perfil/{firstAccountId}");
+        var app = Render<App>();
+        navigation.NavigateTo($"http://localhost/perfil/{secondAccountId}");
+
+        app.WaitForAssertion(() => Assert.Contains("2,0", app.Markup));
+        firstResponse.SetResult(Json("""{"averageRating":4,"ratingCount":1}"""));
+        app.WaitForAssertion(() => Assert.Contains("2,0", app.Markup));
+        Assert.DoesNotContain("4,0", app.Markup, StringComparison.Ordinal);
+    }
     private const string PendingCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"pending","otherPartyConsent":"accepted","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}""";
     private const string MutualCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"accepted","otherPartyConsent":"accepted","hasMutualConsent":true,"otherPhone":"+54 351 555-0199","exactAddress":"Dirección ficticia 123"}""";
     private const string TimeoutMessage = "La solicitud tardó demasiado. Intentá de nuevo.";
@@ -409,7 +729,287 @@ public sealed class ChangaPageTests : Bunit.TestContext
 
         var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
 
-        page.WaitForAssertion(() => Assert.Contains(TimeoutMessage, page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("La solicitud de coordinaciones tardó demasiado", page.Markup));
+    }
+
+    [Fact]
+    public void My_publications_require_explicit_confirmation_and_report_cancelled_status()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var cancelRequests = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel" && request.Method == HttpMethod.Post)
+            {
+                cancelRequests++;
+                return Task.FromResult(Json(
+                    $$"""{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"cancelled","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}"""));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        Assert.Contains("Zona: Centro", page.Markup);
+        Assert.Contains("Recompensa:", page.Markup);
+        Assert.Contains("aria-label=\"Cancelar publicación: Organizar una changa ficticia.\"", page.Markup);
+        Assert.DoesNotContain("Dirección privada", page.Markup);
+        page.FindAll("button").First(button => button.TextContent == "Cancelar publicación").Click();
+        page.WaitForAssertion(() => Assert.Contains("role=\"group\"", page.Markup));
+        Assert.Equal(0, cancelRequests);
+
+        page.Find("button[aria-label='Volver sin cancelar']").Click();
+        Assert.Equal(0, cancelRequests);
+        Assert.DoesNotContain("role=\"group\"", page.Markup);
+
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+        page.WaitForAssertion(() => Assert.Contains("Cancelada", page.Markup));
+        Assert.Equal(1, cancelRequests);
+        Assert.Empty(page.FindAll("button").Where(button => button.TextContent == "Cancelar publicación"));
+        Assert.Contains(page.FindAll("p[role='status']"), element => element.TextContent.Contains("Cancelada", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cancellation_http_failure_does_not_announce_success_and_refreshes_actual_state()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var mineRequests = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                mineRequests++;
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.Conflict, "La changa ya no está disponible."));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo cancelar la publicación", page.Markup));
+        Assert.DoesNotContain("Cancelada", page.Markup);
+        Assert.True(mineRequests >= 2);
+        page.FindAll("button")
+            .Single(button => button.TextContent.Contains("Actualizar publicaciones", StringComparison.Ordinal))
+            .Click();
+        page.WaitForAssertion(() => Assert.DoesNotContain("No se pudo cancelar la publicación", page.Markup));
+    }
+
+    [Fact]
+    public void Coordination_load_failure_does_not_hide_own_publications()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No disponible."));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Publicadas por mí", page.Markup);
+            Assert.Contains("Organizar una changa ficticia.", page.Markup);
+        });
+    }
+
+    [Fact]
+    public void Publication_load_failure_does_not_hide_coordinations()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json(
+                    """[{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Coordinar trabajo pendiente.","role":"worker","yourConsent":"pending","otherPartyConsent":"pending","hasMutualConsent":false,"otherPhone":null}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No disponible."));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Coordinar trabajo pendiente.", page.Markup);
+            Assert.Contains("No se pudieron cargar tus publicaciones.", page.Markup);
+        });
+    }
+
+    [Fact]
+    public async Task Other_publication_cannot_replace_confirmation_while_cancellation_is_pending()
+    {
+        const string firstId = "a1000000-0000-4000-8000-000000000001";
+        const string secondId = "a1000000-0000-4000-8000-000000000002";
+        var cancelResponse = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{firstId}}","description":"Primera publicación","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0},{"id":"{{secondId}}","description":"Segunda publicación","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{firstId}/cancel")
+            {
+                return cancelResponse.Task;
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Primera publicación", page.Markup));
+        page.FindAll("button").First(button => button.TextContent == "Cancelar publicación").Click();
+        var confirmTask = page.Find("button[aria-label='Confirmar cancelación']").ClickAsync();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Single(page.FindAll("[role='group']"));
+            Assert.All(
+                page.FindAll("button").Where(button => button.TextContent == "Cancelar publicación"),
+                button => Assert.True(button.HasAttribute("disabled")));
+        });
+
+        cancelResponse.SetResult(Json(
+            $$"""{"id":"{{firstId}}","description":"Primera publicación","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"cancelled","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}"""));
+        await confirmTask;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Cancellation_network_or_timeout_failure_is_reported_without_false_success(bool timeout)
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel")
+            {
+                return Task.FromException<HttpResponseMessage>(
+                    timeout ? new OperationCanceledException() : new HttpRequestException());
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+
+        var message = timeout ? "La solicitud tardó demasiado" : "No se pudo conectar con el servidor";
+        page.WaitForAssertion(() => Assert.Contains(message, page.Markup));
+        Assert.DoesNotContain("Cancelada", page.Markup);
+    }
+
+
+    [Fact]
+    public void Cancellation_reports_when_refresh_also_fails()
+    {
+        var id = "a1000000-0000-4000-8000-000000000001";
+        var mineRequests = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/v1/coordinations")
+            {
+                return Task.FromResult(Json("[]"));
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/api/v1/changas/mine")
+            {
+                mineRequests++;
+                if (mineRequests > 1)
+                {
+                    return Task.FromResult(Problem(HttpStatusCode.ServiceUnavailable, "No disponible."));
+                }
+
+                return Task.FromResult(Json(
+                    $$"""[{"id":"{{id}}","description":"Organizar una changa ficticia.","categoryId":"organizacion-hogar","reward":1000,"zone":"Centro","materialsNeeded":false,"materialsProvider":null,"status":"available","reviewReason":null,"assignmentMode":"first_come","isSample":false,"createdAt":"2026-10-25T15:00:00Z","distanceKm":0}]"""));
+            }
+
+            if (request.RequestUri?.AbsolutePath == $"/api/v1/changas/{id}/cancel")
+            {
+                return Task.FromResult(Problem(HttpStatusCode.Conflict, "La changa ya no está disponible."));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+        page.WaitForAssertion(() => Assert.Contains("Publicadas por mí", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent == "Cancelar publicación").Click();
+        page.Find("button[aria-label='Confirmar cancelación']").Click();
+
+        page.WaitForAssertion(() => Assert.Contains("No se pudo actualizar el estado", page.Markup));
+        Assert.Contains("Actualizar publicaciones", page.Markup);
     }
 
     [Fact]

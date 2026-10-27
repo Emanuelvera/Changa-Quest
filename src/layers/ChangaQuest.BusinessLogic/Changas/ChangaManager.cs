@@ -6,7 +6,8 @@ namespace ChangaQuest.BusinessLogic.Changas;
 
 public sealed class ChangaManager(
     IChangaStore changaStore,
-    IAccountIdentityStore accountStore)
+    IAccountIdentityStore accountStore,
+    TimeProvider? timeProvider = null)
 {
     public async Task<ChangaManagerResult> CreateAsync(string? userId, ChangaCreateCommand command)
     {
@@ -24,6 +25,25 @@ public sealed class ChangaManager(
             command.MaterialsNeeded,
             command.MaterialsProvider,
             command.HasMaterialsProvider);
+        if (string.IsNullOrWhiteSpace(command.CategoryId))
+        {
+            validation = validation with
+            {
+                IsValid = false,
+                Errors = validation.Errors
+                    .Append(new KeyValuePair<string, string[]>("categoryId", ["Elegí una categoría aprobada."]))
+                    .ToDictionary(item => item.Key, item => item.Value)
+            };
+        }
+        else if (await changaStore.FindCategoryAsync(command.CategoryId.Trim()) is not { IsApproved: true })
+        {
+            return new ChangaManagerResult(
+                ChangaManagerStatus.InvalidCategory,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["categoryId"] = ["La categoría no existe o no está aprobada."]
+                });
+        }
         if (!validation.IsValid)
         {
             return new ChangaManagerResult(ChangaManagerStatus.Invalid, Errors: validation.Errors);
@@ -33,6 +53,7 @@ public sealed class ChangaManager(
         {
             Id = Guid.NewGuid(),
             Description = command.Description!.Trim(),
+            CategoryId = command.CategoryId!.Trim(),
             Reward = command.Reward!.Value,
             Zone = command.Zone!.Trim(),
             ExactAddress = command.ExactAddress!.Trim(),
@@ -41,13 +62,73 @@ public sealed class ChangaManager(
             MaterialsNeeded = command.MaterialsNeeded!.Value,
             MaterialsProvider = ParseMaterialsProvider(command.MaterialsProvider),
             AssignmentMode = AssignmentMode.FirstCome,
-            Status = ChangaStatus.Available,
+            Status = ChangaStatus.PendingReview,
             AuthorId = userId,
             CreatedAt = DateTimeOffset.UtcNow
         };
 
         await changaStore.AddAsync(changa);
         return new ChangaManagerResult(ChangaManagerStatus.Success, Changa: Project(changa));
+    }
+
+    public async Task<ChangaManagerResult> ListApprovedCategoriesAsync(string? userId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        return new ChangaManagerResult(
+            ChangaManagerStatus.Success,
+            Categories: await changaStore.ListApprovedCategoriesAsync());
+    }
+
+    public async Task<ChangaManagerResult> ApproveAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Status != ChangaStatus.PendingReview) return new(ChangaManagerStatus.InvalidReview);
+        if (await changaStore.FindCategoryAsync(changa.CategoryId) is not { IsApproved: true })
+        {
+            return new(
+                ChangaManagerStatus.InvalidReview,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["categoryId"] = ["La categoría ya no está aprobada."]
+                });
+        }
+        changa.Status = ChangaStatus.Available;
+        changa.ReviewReason = null;
+        await changaStore.SaveAsync(changa);
+        return new(ChangaManagerStatus.Success, Changa: Project(changa));
+    }
+
+    public async Task<ChangaManagerResult> RejectAsync(string? userId, Guid id, string? reason)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Status != ChangaStatus.PendingReview) return new(ChangaManagerStatus.InvalidReview);
+        var reviewReason = string.IsNullOrWhiteSpace(reason)
+            ? "La publicación no fue aprobada."
+            : reason.Trim();
+        if (reviewReason.Length > 500)
+        {
+            return new(
+                ChangaManagerStatus.InvalidReview,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["reason"] = ["El motivo no puede superar los 500 caracteres."]
+                });
+        }
+        changa.Status = ChangaStatus.Rejected;
+        changa.ReviewReason = reviewReason;
+        await changaStore.SaveAsync(changa);
+        return new(ChangaManagerStatus.Success, Changa: Project(changa));
     }
 
     public async Task<ChangaManagerResult> ListAvailableAsync(string? userId)
@@ -59,6 +140,20 @@ public sealed class ChangaManager(
         }
 
         var changas = await changaStore.ListAvailableAsync();
+        return new ChangaManagerResult(
+            ChangaManagerStatus.Success,
+            Changas: changas.Select(changa => Project(changa)).ToArray());
+    }
+
+    public async Task<ChangaManagerResult> ListMyUnassignedAsync(string? userId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changas = await changaStore.ListMyUnassignedAsync(userId!);
         return new ChangaManagerResult(
             ChangaManagerStatus.Success,
             Changas: changas.Select(changa => Project(changa)).ToArray());
@@ -163,6 +258,56 @@ public sealed class ChangaManager(
             ChangaTakePersistenceResult.AlreadyAssignedToOther =>
                 new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned),
             ChangaTakePersistenceResult.NotAvailable =>
+                new ChangaManagerResult(ChangaManagerStatus.NotAvailable),
+            _ => new ChangaManagerResult(ChangaManagerStatus.NotFound)
+        };
+    }
+
+    public async Task<ChangaManagerResult> CancelAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotFound);
+        }
+
+        if (changa.AuthorId != userId)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.CancelForbidden);
+        }
+
+        if (changa.Assignment is not null || changa.Status == ChangaStatus.Assigned)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned);
+        }
+
+        if (changa.Status != ChangaStatus.Available)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotAvailable);
+        }
+
+        var cancellation = await changaStore.CancelAsync(id);
+        if (cancellation == ChangaCancelPersistenceResult.Cancelled)
+        {
+            var cancelledChanga = await changaStore.FindByIdAsync(id);
+            return cancelledChanga is null
+                ? new ChangaManagerResult(ChangaManagerStatus.NotFound)
+                : new ChangaManagerResult(
+                    ChangaManagerStatus.Success,
+                    Changa: Project(cancelledChanga));
+        }
+
+        return cancellation switch
+        {
+            ChangaCancelPersistenceResult.AlreadyAssigned =>
+                new ChangaManagerResult(ChangaManagerStatus.AlreadyAssigned),
+            ChangaCancelPersistenceResult.NotAvailable =>
                 new ChangaManagerResult(ChangaManagerStatus.NotAvailable),
             _ => new ChangaManagerResult(ChangaManagerStatus.NotFound)
         };
@@ -339,6 +484,279 @@ public sealed class ChangaManager(
         };
     }
 
+    public async Task<ChangaManagerResult> GetRatingEligibilityAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.RatingForbidden);
+
+        if (changa.Status != ChangaStatus.Completed || changa.Assignment is null)
+        {
+            return new(
+                ChangaManagerStatus.Success,
+                RatingEligibility: new ChangaRatingEligibilityView(id, false, false));
+        }
+
+        if (string.IsNullOrWhiteSpace(GetRateeId(changa, role.Value)))
+        {
+            return new(
+                ChangaManagerStatus.Success,
+                RatingEligibility: new ChangaRatingEligibilityView(id, false, false));
+        }
+
+        var hasRated = await changaStore.HasRatingAsync(id, userId!);
+        return new(
+            ChangaManagerStatus.Success,
+            RatingEligibility: new ChangaRatingEligibilityView(id, !hasRated, hasRated));
+    }
+
+    public async Task<ChangaManagerResult> SubmitRatingAsync(string? userId, Guid id, int? score)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+
+        if (score is < 1 or > 5 or null)
+        {
+            return new(
+                ChangaManagerStatus.Invalid,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["score"] = ["La calificación debe ser un número entero entre 1 y 5."]
+                });
+        }
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.RatingForbidden);
+        if (changa.Status != ChangaStatus.Completed || changa.Assignment is null)
+        {
+            return new(ChangaManagerStatus.RatingNotAvailable);
+        }
+
+        var rateeId = GetRateeId(changa, role.Value);
+        if (string.IsNullOrWhiteSpace(rateeId))
+        {
+            return new(ChangaManagerStatus.RatingNotAvailable);
+        }
+
+        var rating = new ChangaRating
+        {
+            Id = Guid.NewGuid(),
+            ChangaId = changa.Id,
+            RaterId = userId!,
+            RateeId = rateeId,
+            Score = score.Value,
+            CreatedAt = UtcNow
+        };
+        var persisted = await changaStore.AddRatingAsync(rating);
+        if (persisted == ChangaRatingPersistenceResult.AlreadyExists)
+        {
+            return new(ChangaManagerStatus.RatingAlreadySubmitted);
+        }
+
+        return new(
+            ChangaManagerStatus.Success,
+            RatingReceipt: new ChangaRatingReceiptView(changa.Id, rating.Score));
+    }
+
+    public async Task<ChangaManagerResult> GetRatingProfileAsync(string? viewerId, string? profileId)
+    {
+        var access = await CheckAccessAsync(viewerId);
+        if (access is not null) return access;
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            return new(ChangaManagerStatus.NotFound);
+        }
+
+        var profile = await accountStore.FindByIdAsync(profileId);
+        if (profile is null || !profile.EmailConfirmed || !profile.DeclaredAdult)
+        {
+            return new(ChangaManagerStatus.NotFound);
+        }
+
+        var aggregate = await changaStore.GetRatingAggregateAsync(profileId);
+        return new(
+            ChangaManagerStatus.Success,
+            RatingProfile: new RatingProfileView(aggregate.AverageRating, aggregate.RatingCount));
+    }
+
+    public async Task<ChangaManagerResult> GetCompletionAsync(string? userId, Guid id)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.CompletionForbidden);
+
+        changa = await ApplyExpirationAsync(changa);
+        return new(ChangaManagerStatus.Success, Completion: ProjectCompletion(changa, role.Value));
+    }
+
+    public async Task<ChangaManagerResult> MarkDoneAsync(string? userId, Guid id)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        if (GetCoordinationRole(changa, userId!) != ChangaCoordinationRole.Worker)
+        {
+            return new(ChangaManagerStatus.CompletionForbidden);
+        }
+
+        changa = await ApplyExpirationAsync(changa);
+        if (changa.Status != ChangaStatus.Assigned)
+        {
+            return new(ChangaManagerStatus.CompletionInvalidState);
+        }
+
+        var now = UtcNow;
+        var deadline = now.AddMinutes(ChangaPolicy.CompletionResponseMinutes);
+        var transition = await changaStore.TransitionCompletionAsync(
+            id, ChangaStatus.Assigned, ChangaStatus.PendingResponse,
+            requestedAt: now, deadline: deadline);
+        if (transition != ChangaCompletionTransitionResult.Updated)
+        {
+            return new(ChangaManagerStatus.CompletionInvalidState);
+        }
+
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return new(ChangaManagerStatus.Success,
+            Completion: ProjectCompletion(changa, ChangaCoordinationRole.Worker));
+    }
+
+    public Task<ChangaManagerResult> ConfirmCompletionAsync(string? userId, Guid id) =>
+        RespondToCompletionAsync(userId, id, confirm: true);
+
+    public Task<ChangaManagerResult> RejectCompletionAsync(string? userId, Guid id) =>
+        RespondToCompletionAsync(userId, id, confirm: false);
+
+    public async Task<ChangaManagerResult> DeclarePaymentAsync(string? userId, Guid id)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.PaymentDeclarationForbidden);
+        if (changa.Status != ChangaStatus.Confirmed)
+        {
+            return new(ChangaManagerStatus.PaymentDeclarationUnavailable);
+        }
+
+        var result = await changaStore.DeclarePaymentAsync(
+            id, role == ChangaCoordinationRole.Requester, UtcNow);
+        if (result == ChangaPaymentDeclarationPersistenceResult.AlreadyDeclared)
+        {
+            return new(ChangaManagerStatus.PaymentDeclarationAlreadyRecorded);
+        }
+        if (result == ChangaPaymentDeclarationPersistenceResult.StateChanged)
+        {
+            return new(ChangaManagerStatus.PaymentDeclarationUnavailable);
+        }
+
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return new(ChangaManagerStatus.Success,
+            PaymentDeclaration: ProjectPaymentDeclaration(changa));
+    }
+
+    private async Task<ChangaManagerResult> RespondToCompletionAsync(string? userId, Guid id, bool confirm)
+    {
+        var access = await CheckCompletionAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        if (changa.Assignment is null) return new(ChangaManagerStatus.NotAssigned);
+        if (GetCoordinationRole(changa, userId!) != ChangaCoordinationRole.Requester)
+        {
+            return new(ChangaManagerStatus.CompletionForbidden);
+        }
+
+        changa = await ApplyExpirationAsync(changa);
+        if (changa.Status != ChangaStatus.PendingResponse)
+        {
+            return new(ChangaManagerStatus.CompletionNotPending);
+        }
+
+        var targetStatus = confirm ? ChangaStatus.Confirmed : ChangaStatus.CompletionReview;
+        var transition = await changaStore.TransitionCompletionAsync(
+            id,
+            ChangaStatus.PendingResponse,
+            targetStatus,
+            respondedAt: UtcNow,
+            reviewCause: confirm ? null : "rejected");
+        if (transition != ChangaCompletionTransitionResult.Updated)
+        {
+            return new(ChangaManagerStatus.CompletionNotPending);
+        }
+
+        changa = await changaStore.FindByIdAsync(id) ?? changa;
+        return new(ChangaManagerStatus.Success,
+            Completion: ProjectCompletion(changa, ChangaCoordinationRole.Requester));
+    }
+
+    private async Task<Changa> ApplyExpirationAsync(Changa changa)
+    {
+        if (changa.Status == ChangaStatus.PendingResponse &&
+            changa.Assignment?.CompletionDeadline is { } deadline && UtcNow >= deadline)
+        {
+            await changaStore.TransitionCompletionAsync(
+                changa.Id,
+                ChangaStatus.PendingResponse,
+                ChangaStatus.CompletionReview,
+                reviewCause: "expired");
+            return await changaStore.FindByIdAsync(changa.Id) ?? changa;
+        }
+
+        return changa;
+    }
+
+    private async Task<ChangaManagerResult?> CheckCompletionAccessAsync(string? userId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access?.Status == ChangaManagerStatus.Forbidden)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.CompletionForbidden);
+        }
+        return access;
+    }
+
+    private DateTimeOffset UtcNow => (timeProvider ?? TimeProvider.System).GetUtcNow();
+
+    private static ChangaCompletionView ProjectCompletion(Changa changa, ChangaCoordinationRole role) => new(
+        changa.Id,
+        changa.Description,
+        role == ChangaCoordinationRole.Requester ? "requester" : "worker",
+        changa.Status switch
+        {
+            ChangaStatus.Assigned => "assigned",
+            ChangaStatus.PendingResponse => "pending_response",
+            ChangaStatus.Confirmed => "confirmed",
+            ChangaStatus.CompletionReview => "completion_review",
+            ChangaStatus.Completed => "completed",
+            _ => "assigned"
+        },
+        changa.Assignment?.CompletionRequestedAt,
+        changa.Assignment?.CompletionDeadline,
+        changa.Assignment?.CompletionReviewCause);
+
+    private static ChangaPaymentDeclarationView ProjectPaymentDeclaration(Changa changa) => new(
+        changa.Id,
+        changa.Assignment?.RequesterPaymentDeclaredAt is not null,
+        changa.Assignment?.WorkerPaymentDeclaredAt is not null,
+        changa.Status == ChangaStatus.Completed);
     private static ChangaCoordinationRole? GetCoordinationRole(Changa changa, string userId)
     {
         if (changa.AuthorId == userId)
@@ -366,6 +784,7 @@ public sealed class ChangaManager(
             changa.Id,
             changa.Description,
             requester ? "requester" : "worker",
+            requester ? assignment.WorkerId : changa.AuthorId,
             ownConsent switch
             {
                 PhoneConsentStatus.Accepted => "accepted",
@@ -398,6 +817,11 @@ public sealed class ChangaManager(
             request.Status == ChangaCancellationRequestStatus.Pending
                 ? "cancellation_request_created"
                 : "cancellation_request_updated");
+
+    private static string? GetRateeId(Changa changa, ChangaCoordinationRole role) =>
+        role == ChangaCoordinationRole.Requester
+            ? changa.Assignment?.WorkerId
+            : changa.AuthorId;
 
     private static bool IsValidPhone(string? phone)
     {
@@ -468,6 +892,7 @@ public sealed class ChangaManager(
     private static ChangaPublicView Project(Changa changa, double distanceKm = 0) => new(
         changa.Id,
         changa.Description,
+        changa.CategoryId,
         changa.Reward,
         changa.Zone,
         changa.MaterialsNeeded,
@@ -482,8 +907,15 @@ public sealed class ChangaManager(
             ChangaStatus.Available => "available",
             ChangaStatus.Assigned => "assigned",
             ChangaStatus.Cancelled => "cancelled",
+            ChangaStatus.PendingReview => "pending_review",
+            ChangaStatus.Rejected => "rejected",
+            ChangaStatus.PendingResponse => "pending_response",
+            ChangaStatus.Confirmed => "confirmed",
+            ChangaStatus.CompletionReview => "completion_review",
+            ChangaStatus.Completed => "completed",
             _ => "available"
         },
+        changa.ReviewReason,
         "first_come",
         changa.IsSample,
         changa.CreatedAt,
@@ -576,7 +1008,8 @@ public sealed record ChangaCreateCommand(
     string? MaterialsProvider,
     bool HasMaterialsProvider,
     double? Latitude = null,
-    double? Longitude = null);
+    double? Longitude = null,
+    string? CategoryId = null);
 
 public sealed record ChangaSearchQuery(
     double? Latitude,
@@ -591,11 +1024,13 @@ public sealed record ChangaValidationResult(
 public sealed record ChangaPublicView(
     Guid Id,
     string Description,
+    string CategoryId,
     int Reward,
     string Zone,
     bool MaterialsNeeded,
     string? MaterialsProvider,
     string Status,
+    string? ReviewReason,
     string AssignmentMode,
     bool IsSample,
     DateTimeOffset CreatedAt,
@@ -615,7 +1050,19 @@ public enum ChangaManagerStatus
     NotAssigned,
     InvalidPhone,
     CancellationForbidden,
-    CancellationConflict
+    CancellationConflict,
+    InvalidCategory,
+    InvalidReview,
+    CompletionForbidden,
+    CompletionNotPending,
+    CompletionInvalidState,
+    PaymentDeclarationForbidden,
+    PaymentDeclarationUnavailable,
+    PaymentDeclarationAlreadyRecorded,
+    CancelForbidden,
+    RatingForbidden,
+    RatingNotAvailable,
+    RatingAlreadySubmitted
 }
 
 public enum ChangaCoordinationRole
@@ -628,18 +1075,40 @@ public sealed record ChangaManagerResult(
     ChangaManagerStatus Status,
     ChangaPublicView? Changa = null,
     IReadOnlyList<ChangaPublicView>? Changas = null,
+    IReadOnlyList<ChangaCategory>? Categories = null,
     IReadOnlyDictionary<string, string[]>? Errors = null,
     ChangaAssignmentView? Assignment = null,
     ChangaCoordinationView? Coordination = null,
     IReadOnlyList<ChangaCoordinationView>? Coordinations = null,
-    ChangaCancellationRequestView? CancellationRequest = null);
+    ChangaCancellationRequestView? CancellationRequest = null,
+    ChangaCompletionView? Completion = null,
+    ChangaPaymentDeclarationView? PaymentDeclaration = null,
+    ChangaRatingEligibilityView? RatingEligibility = null,
+    ChangaRatingReceiptView? RatingReceipt = null,
+    RatingProfileView? RatingProfile = null);
+
+public sealed record ChangaPaymentDeclarationView(
+    Guid ChangaId,
+    bool RequesterPaid,
+    bool WorkerReceived,
+    bool Closed);
 
 public sealed record ChangaAssignmentView(Guid Id, DateTimeOffset AssignedAt);
+
+public sealed record ChangaCompletionView(
+    Guid ChangaId,
+    string Description,
+    string Role,
+    string Status,
+    DateTimeOffset? MarkedDoneAt,
+    DateTimeOffset? ResponseDeadline,
+    string? ReviewCause);
 
 public sealed record ChangaCoordinationView(
     Guid ChangaId,
     string Description,
     string Role,
+    string? OtherPartyId,
     string YourConsent,
     string OtherPartyConsent,
     bool HasMutualConsent,
@@ -655,3 +1124,9 @@ public sealed record ChangaCancellationRequestView(
     DateTimeOffset CreatedAt,
     DateTimeOffset? RespondedAt,
     string Code);
+
+public sealed record ChangaRatingEligibilityView(Guid ChangaId, bool CanRate, bool HasRated);
+
+public sealed record ChangaRatingReceiptView(Guid ChangaId, int Score);
+
+public sealed record RatingProfileView(double? AverageRating, int RatingCount);

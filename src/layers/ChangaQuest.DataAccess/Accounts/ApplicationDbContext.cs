@@ -9,6 +9,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     : IdentityDbContext<AppUser>(options)
 {
     public DbSet<Changa> Changas => Set<Changa>();
+    public DbSet<ChangaCategory> ChangaCategories => Set<ChangaCategory>();
+    public DbSet<ChangaRating> ChangaRatings => Set<ChangaRating>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -17,6 +19,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         {
             entity.HasKey(changa => changa.Id);
             entity.Property(changa => changa.Description).HasMaxLength(ChangaPolicy.MaximumDescriptionLength).IsRequired();
+            entity.Property(changa => changa.CategoryId).HasMaxLength(64).IsRequired(false);
+            entity.Property(changa => changa.ReviewReason).HasMaxLength(500);
             entity.Property(changa => changa.Zone).HasMaxLength(ChangaPolicy.MaximumZoneLength).IsRequired();
             entity.Property(changa => changa.ExactAddress).HasMaxLength(ChangaPolicy.MaximumExactAddressLength).IsRequired();
             entity.Property(changa => changa.Latitude).HasPrecision(9, 6);
@@ -34,6 +38,14 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                 .HasForeignKey(request => request.ChangaId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+        builder.Entity<ChangaCategory>(entity =>
+        {
+            entity.HasKey(category => category.Id);
+            entity.Property(category => category.Id).HasMaxLength(64);
+            entity.Property(category => category.Name).HasMaxLength(120).IsRequired();
+            entity.Property(category => category.IsApproved).IsRequired();
+            entity.HasData(ChangaCategoryCatalog.Approved);
+        });
         builder.Entity<ChangaAssignment>(entity =>
         {
             entity.HasKey(assignment => assignment.Id);
@@ -42,6 +54,9 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(assignment => assignment.RequesterPhone).HasMaxLength(ChangaPolicy.MaximumPhoneLength);
             entity.Property(assignment => assignment.WorkerPhoneConsent).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.Property(assignment => assignment.WorkerPhone).HasMaxLength(ChangaPolicy.MaximumPhoneLength);
+            entity.Property(assignment => assignment.CompletionReviewCause).HasMaxLength(16);
+            entity.Property(assignment => assignment.RequesterPaymentDeclaredAt);
+            entity.Property(assignment => assignment.WorkerPaymentDeclaredAt);
             entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
         });
         builder.Entity<ChangaCancellationRequest>(entity =>
@@ -53,6 +68,25 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.HasIndex(request => request.ChangaId)
                 .IsUnique()
                 .HasFilter("[Status] = 'Pending'");
+        });
+        builder.Entity<ChangaRating>(entity =>
+        {
+            entity.HasKey(rating => rating.Id);
+            entity.Property(rating => rating.RaterId).HasMaxLength(450).IsRequired();
+            entity.Property(rating => rating.RateeId).HasMaxLength(450).IsRequired();
+            entity.Property(rating => rating.Score).IsRequired();
+            entity.Property(rating => rating.CreatedAt).IsRequired();
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_ChangaRatings_Score",
+                "[Score] >= 1 AND [Score] <= 5"));
+            entity.HasOne(rating => rating.Changa)
+                .WithMany()
+                .HasForeignKey(rating => rating.ChangaId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(rating => new { rating.ChangaId, rating.RaterId })
+                .IsUnique()
+                .HasDatabaseName("IX_ChangaRatings_ChangaId_RaterId");
+            entity.HasIndex(rating => rating.RateeId);
         });
         builder.Entity<AppUser>()
             .Property(user => user.SearchLatitude)

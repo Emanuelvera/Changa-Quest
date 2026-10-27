@@ -20,9 +20,17 @@ public static class ChangaEndpointExtensions
             .ProducesValidationProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
+        changas.MapGet("/categories", ListCategoriesAsync)
+            .Produces<IReadOnlyList<ChangaCategoryView>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
         changas.MapGet("", ListAsync)
             .Produces<IReadOnlyList<ChangaPublicView>>(StatusCodes.Status200OK)
             .ProducesValidationProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+        changas.MapGet("/mine", ListMyUnassignedAsync)
+            .Produces<IReadOnlyList<ChangaPublicView>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
         changas.MapGet("/{id:guid}", FindAsync)
@@ -32,6 +40,54 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status404NotFound);
         changas.MapPost("/{id:guid}/take", TakeAsync)
             .Produces<ChangaTakeResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/cancel", CancelAsync)
+            .Produces<ChangaPublicView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapGet("/{id:guid}/completion", GetCompletionAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/completion/mark-done", MarkDoneAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/completion/confirm", ConfirmCompletionAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/completion/reject", RejectCompletionAsync)
+            .Produces<ChangaCompletionView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapGet("/{id:guid}/rating", GetRatingEligibilityAsync)
+            .Produces<ChangaRatingEligibilityView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        changas.MapPost("/{id:guid}/rating", SubmitRatingAsync)
+            .Produces<ChangaRatingReceiptView>(StatusCodes.Status201Created)
+            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/payment-declaration", DeclarePaymentAsync)
+            .Produces<ChangaPaymentDeclarationView>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -86,7 +142,8 @@ public static class ChangaEndpointExtensions
             ReadString(request, "materialsProvider"),
             request.ValueKind == JsonValueKind.Object && request.TryGetProperty("materialsProvider", out _),
             ReadDouble(request, "latitude"),
-            ReadDouble(request, "longitude"));
+            ReadDouble(request, "longitude"),
+            ReadString(request, "categoryId"));
         var result = await manager.CreateAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), command);
 
         return result.Status switch
@@ -97,6 +154,11 @@ public static class ChangaEndpointExtensions
             ChangaManagerStatus.Invalid => Results.ValidationProblem(
                 result.Errors ?? new Dictionary<string, string[]>(),
                 title: "No se pudo publicar la changa."),
+            ChangaManagerStatus.InvalidCategory => Problem(
+                StatusCodes.Status400BadRequest,
+                "Categoría no aprobada",
+                "Elegí una categoría existente y aprobada.",
+                "category_not_approved"),
             ChangaManagerStatus.Unauthenticated => Problem(
                 StatusCodes.Status401Unauthorized,
                 "Sesión no iniciada",
@@ -106,6 +168,20 @@ public static class ChangaEndpointExtensions
                 "Cuenta no habilitada",
                 "Solo las cuentas adultas con correo verificado pueden publicar."),
             _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo completar la operación.")
+        };
+    }
+
+    private static async Task<IResult> ListCategoriesAsync(
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.ListApprovedCategoriesAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Categories!
+                .Select(category => new ChangaCategoryView(category.Id, category.Name))
+                .ToArray()),
+            _ => AccessProblem(result.Status)
         };
     }
 
@@ -147,6 +223,18 @@ public static class ChangaEndpointExtensions
         };
     }
 
+    private static async Task<IResult> ListMyUnassignedAsync(
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.ListMyUnassignedAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Changas),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
     private static IResult AccessProblem(ChangaManagerStatus status) => status switch
     {
         ChangaManagerStatus.Unauthenticated => Problem(
@@ -158,6 +246,150 @@ public static class ChangaEndpointExtensions
             "Cuenta no habilitada",
             "Solo las cuentas adultas con correo verificado pueden consultar changas.")
     };
+
+    private static async Task<IResult> GetCompletionAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.GetCompletionAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> MarkDoneAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.MarkDoneAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> ConfirmCompletionAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.ConfirmCompletionAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> RejectCompletionAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => CompletionResult(
+            await manager.RejectCompletionAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static async Task<IResult> DeclarePaymentAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.DeclarePaymentAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.PaymentDeclaration),
+            ChangaManagerStatus.Unauthenticated => Problem(
+                StatusCodes.Status401Unauthorized, "Sesión no iniciada",
+                "Iniciá sesión para declarar el pago.", "payment_declaration_unauthenticated"),
+            ChangaManagerStatus.PaymentDeclarationForbidden => Problem(
+                StatusCodes.Status403Forbidden, "Acceso denegado",
+                "Solo las partes asignadas pueden declarar el pago.",
+                "payment_declaration_forbidden"),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound, "Changa no encontrada",
+                "No existe una changa con ese identificador.", "changa_not_found"),
+            ChangaManagerStatus.NotAssigned => Problem(
+                StatusCodes.Status409Conflict, "Changa sin asignar",
+                "La declaración requiere una asignación activa.", "changa_not_assigned"),
+            ChangaManagerStatus.PaymentDeclarationAlreadyRecorded => Problem(
+                StatusCodes.Status409Conflict, "Declaración ya registrada",
+                "Tu declaración de pago ya fue registrada.",
+                "payment_declaration_already_recorded"),
+            ChangaManagerStatus.PaymentDeclarationUnavailable => Problem(
+                StatusCodes.Status409Conflict, "Declaración no disponible",
+                "La declaración solo está disponible después de confirmar la realización.",
+                "payment_declaration_unavailable"),
+            _ => Problem(StatusCodes.Status500InternalServerError, "Error interno",
+                "No se pudo completar la operación.")
+        };
+    }
+
+    private static IResult CompletionResult(ChangaManagerResult result) => result.Status switch
+    {
+        ChangaManagerStatus.Success => Results.Ok(result.Completion),
+        ChangaManagerStatus.Unauthenticated => Problem(
+            StatusCodes.Status401Unauthorized, "Sesi\u00f3n no iniciada", "Inici\u00e1 sesi\u00f3n para consultar la finalizaci\u00f3n."),
+        ChangaManagerStatus.CompletionForbidden => Problem(
+            StatusCodes.Status403Forbidden, "Acceso denegado", "Solo las partes asignadas pueden gestionar la finalizaci\u00f3n.", "completion_forbidden"),
+        ChangaManagerStatus.NotFound => Problem(
+            StatusCodes.Status404NotFound, "Changa no encontrada", "No existe una changa con ese identificador.", "changa_not_found"),
+        ChangaManagerStatus.NotAssigned => Problem(
+            StatusCodes.Status409Conflict, "Changa sin asignar", "La finalizaci\u00f3n requiere una asignaci\u00f3n activa.", "changa_not_assigned"),
+        ChangaManagerStatus.CompletionNotPending => Problem(
+            StatusCodes.Status409Conflict, "Finalizaci\u00f3n no pendiente", "La finalizaci\u00f3n ya no admite una respuesta.", "completion_not_pending"),
+        ChangaManagerStatus.CompletionInvalidState => Problem(
+            StatusCodes.Status409Conflict, "Estado incompatible", "La changa no está en un estado que permita marcarla como terminada.", "completion_invalid_state"),
+        _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo completar la operaci\u00f3n.")
+    };
+
+    private static async Task<IResult> GetRatingEligibilityAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager) => RatingEligibilityResult(
+        await manager.GetRatingEligibilityAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id));
+
+    private static IResult RatingEligibilityResult(ChangaManagerResult result) => result.Status switch
+    {
+        ChangaManagerStatus.Success => Results.Ok(result.RatingEligibility),
+        ChangaManagerStatus.Unauthenticated => Problem(
+            StatusCodes.Status401Unauthorized, "Sesión no iniciada", "Iniciá sesión para consultar la calificación."),
+        ChangaManagerStatus.Forbidden => Problem(
+            StatusCodes.Status403Forbidden, "Cuenta no habilitada", "La cuenta no cumple los requisitos para calificar."),
+        ChangaManagerStatus.RatingForbidden => Problem(
+            StatusCodes.Status403Forbidden, "Acceso denegado", "Solo las partes asignadas pueden consultar la calificación.", "rating_forbidden"),
+        ChangaManagerStatus.NotFound => Problem(
+            StatusCodes.Status404NotFound, "Changa no encontrada", "No existe una changa con ese identificador.", "changa_not_found"),
+        _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo consultar la calificación.")
+    };
+
+    private static async Task<IResult> SubmitRatingAsync(
+        Guid id,
+        JsonElement request,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        if (request.ValueKind != JsonValueKind.Object ||
+            request.EnumerateObject().Count() != 1 ||
+            !request.TryGetProperty("score", out _))
+        {
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]>
+                {
+                    ["score"] = ["La solicitud solo admite el campo score, sin comentarios ni otros datos."]
+                },
+                title: "No se pudo guardar la calificación.");
+        }
+
+        var result = await manager.SubmitRatingAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier),
+            id,
+            ReadInt32(request, "score"));
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Created(
+                $"/api/v1/changas/{id}/rating",
+                result.RatingReceipt),
+            ChangaManagerStatus.Invalid => Results.ValidationProblem(
+                result.Errors ?? new Dictionary<string, string[]>(),
+                title: "No se pudo guardar la calificación."),
+            ChangaManagerStatus.Unauthenticated => Problem(
+                StatusCodes.Status401Unauthorized, "Sesión no iniciada", "Iniciá sesión para calificar."),
+            ChangaManagerStatus.Forbidden => Problem(
+                StatusCodes.Status403Forbidden, "Cuenta no habilitada", "La cuenta no cumple los requisitos para calificar."),
+            ChangaManagerStatus.RatingForbidden => Problem(
+                StatusCodes.Status403Forbidden, "Acceso denegado", "Solo las partes asignadas pueden calificar.", "rating_forbidden"),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound, "Changa no encontrada", "No existe una changa con ese identificador.", "changa_not_found"),
+            ChangaManagerStatus.RatingNotAvailable => Problem(
+                StatusCodes.Status409Conflict, "Calificación no disponible", "Solo se puede calificar después del cierre normal.", "rating_not_available"),
+            ChangaManagerStatus.RatingAlreadySubmitted => Problem(
+                StatusCodes.Status409Conflict, "Calificación ya enviada", "Cada parte puede calificar una sola vez por changa.", "rating_already_submitted"),
+            _ => Problem(StatusCodes.Status500InternalServerError, "Error interno", "No se pudo guardar la calificación.")
+        };
+    }
 
     private static async Task<IResult> GetCoordinationAsync(
         Guid id,
@@ -341,6 +573,39 @@ public static class ChangaEndpointExtensions
         };
     }
 
+    private static async Task<IResult> CancelAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.CancelAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.Changa),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound,
+                "Changa no encontrada",
+                "No existe una changa con ese identificador.",
+                "changa_not_found"),
+            ChangaManagerStatus.CancelForbidden => Problem(
+                StatusCodes.Status403Forbidden,
+                "Acceso denegado",
+                "Solo la persona autora puede cancelar esta publicación.",
+                "changa_cancel_forbidden"),
+            ChangaManagerStatus.AlreadyAssigned => Problem(
+                StatusCodes.Status409Conflict,
+                "La changa ya fue asignada",
+                "No se puede cancelar una changa que ya tiene una asignación.",
+                "changa_already_assigned"),
+            ChangaManagerStatus.NotAvailable => Problem(
+                StatusCodes.Status409Conflict,
+                "La changa ya no está disponible",
+                "Solo se puede cancelar una changa disponible.",
+                "changa_not_available"),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
     private static IResult Problem(int statusCode, string title, string detail, string? code = null) =>
         Results.Problem(
             statusCode: statusCode,
@@ -381,3 +646,5 @@ public static class ChangaEndpointExtensions
 public sealed record ChangaTakeResponse(
     ChangaPublicView Changa,
     ChangaAssignmentView Assignment);
+
+public sealed record ChangaCategoryView(string Id, string Name);

@@ -25,6 +25,20 @@
             <h2 id="publish-heading">Datos de la changa</h2>
             <EditForm Model="Form" OnSubmit="PublishAsync">
                 <div class="field">
+                    <label for="category">Categoría</label>
+                    <InputSelect id="category" @bind-Value="Form.CategoryId"
+                                 aria-describedby="@ErrorDescription("categoryId")" aria-invalid="@HasError("categoryId")">
+                        <option value="">Seleccioná una categoría aprobada</option>
+                        @foreach (var category in Categories)
+                        {
+                            <option value="@category.Id">@category.Name</option>
+                        }
+                    </InputSelect>
+                    <p class="hint">La categoría no garantiza que el contenido sea seguro; toda publicación pasa por revisión.</p>
+                    <ValidationMessage id="category-validation" For="@(() => Form.CategoryId)" />
+                    @FieldError("categoryId")
+                </div>
+                <div class="field">
                     <label for="description">Descripción</label>
                     <InputTextArea id="description" @bind-Value="Form.Description"
                                    aria-describedby="@ErrorDescription("description")" aria-invalid="@HasError("description")" />
@@ -102,6 +116,7 @@
     private bool Busy;
     private string? Error;
     private string? Success;
+    private IReadOnlyList<ChangaCategoryOption> Categories = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -109,6 +124,17 @@
         {
             using var response = await Http.GetAsync("/api/v1/accounts/me");
             SignedIn = response.IsSuccessStatusCode;
+            if (SignedIn)
+            {
+                using var categories = await Http.GetAsync("/api/v1/changas/categories");
+                if (!categories.IsSuccessStatusCode)
+                {
+                    Error = "No se pudo cargar el catálogo de categorías aprobadas.";
+                    return;
+                }
+
+                Categories = await categories.Content.ReadFromJsonAsync<ChangaCategoryOption[]>() ?? [];
+            }
         }
         catch (HttpRequestException)
         {
@@ -141,6 +167,7 @@
         try
         {
             var payload = new CreateChangaRequest(
+                Form.CategoryId,
                 Form.Description,
                 Form.Reward,
                 Form.Zone,
@@ -150,7 +177,7 @@
             using var response = await Http.PostAsJsonAsync("/api/v1/changas", payload);
             if (response.StatusCode == System.Net.HttpStatusCode.Created)
             {
-                Success = "La changa quedó publicada y disponible en el tablón.";
+                Success = "La changa quedó pendiente de revisión. Te avisaremos cuando pueda aparecer en el tablón.";
                 return;
             }
 
@@ -213,6 +240,7 @@
         var id = field switch
         {
             "exactAddress" => "exact-address",
+            "categoryId" => "category",
             "materialsNeeded" => "materials-needed",
             "materialsProvider" => "materials-provider",
             _ => field
@@ -227,6 +255,7 @@
             var id = field switch
             {
                 "exactAddress" => "exact-address",
+                "categoryId" => "category",
                 "materialsNeeded" => "materials-needed",
                 "materialsProvider" => "materials-provider",
                 _ => field
@@ -243,6 +272,7 @@
     private sealed class PublicationForm
     {
         public string Description { get; set; } = string.Empty;
+        public string CategoryId { get; set; } = string.Empty;
         public int? Reward { get; set; }
         public string Zone { get; set; } = string.Empty;
         public string ExactAddress { get; set; } = string.Empty;
@@ -251,6 +281,7 @@
     }
 
     private sealed record CreateChangaRequest(
+        string CategoryId,
         string Description,
         int? Reward,
         string Zone,
@@ -258,4 +289,6 @@
         bool? MaterialsNeeded,
         [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         string? MaterialsProvider);
+
+    private sealed record ChangaCategoryOption(string Id, string Name);
 }

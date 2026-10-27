@@ -13,11 +13,17 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var client = factory.CreateClient();
         using var publish = await client.PostAsJsonAsync("/api/v1/changas", ValidRequest());
         using var board = await client.GetAsync("/api/v1/changas");
+        using var mine = await client.GetAsync("/api/v1/changas/mine");
+        using var cancel = await client.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, publish.StatusCode);
         Assert.Equal("application/problem+json", publish.Content.Headers.ContentType?.MediaType);
         Assert.Equal(HttpStatusCode.Unauthorized, board.StatusCode);
         Assert.Equal("application/problem+json", board.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(HttpStatusCode.Unauthorized, mine.StatusCode);
+        Assert.Equal("application/problem+json", mine.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(HttpStatusCode.Unauthorized, cancel.StatusCode);
+        Assert.Equal("application/problem+json", cancel.Content.Headers.ContentType?.MediaType);
     }
 
     [Fact]
@@ -49,7 +55,13 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         }
 
         using var board = await client.GetAsync("/api/v1/changas");
+        using var categories = await client.GetAsync("/api/v1/changas/categories");
+        using var mine = await client.GetAsync("/api/v1/changas/mine");
+        using var cancel = await client.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
         Assert.Equal(HttpStatusCode.Forbidden, board.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, categories.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, mine.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, cancel.StatusCode);
         Assert.Equal("application/problem+json", board.Content.Headers.ContentType?.MediaType);
     }
 
@@ -67,7 +79,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         Assert.Equal("application/json", created.Content.Headers.ContentType?.MediaType);
         using var createdJson = JsonDocument.Parse(createdContent);
         var item = createdJson.RootElement;
-        Assert.Equal("available", item.GetProperty("status").GetString());
+        Assert.Equal("pending_review", item.GetProperty("status").GetString());
         Assert.Equal("first_come", item.GetProperty("assignmentMode").GetString());
         Assert.Equal(request.description, item.GetProperty("description").GetString());
         Assert.Equal(request.reward, item.GetProperty("reward").GetInt32());
@@ -81,15 +93,54 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var listed = await client.GetAsync("/api/v1/changas");
         var listContent = await listed.Content.ReadAsStringAsync();
         using var listJson = JsonDocument.Parse(listContent);
-        Assert.Contains(listJson.RootElement.EnumerateArray(), changa => changa.GetProperty("id").GetGuid() == id);
+        Assert.DoesNotContain(listJson.RootElement.EnumerateArray(), changa => changa.GetProperty("id").GetGuid() == id);
         Assert.DoesNotContain(exactAddress, listContent, StringComparison.Ordinal);
 
         using var detail = await client.GetAsync($"/api/v1/changas/{id}");
         var detailContent = await detail.Content.ReadAsStringAsync();
-        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, detail.StatusCode);
         Assert.DoesNotContain(exactAddress, detailContent, StringComparison.Ordinal);
         using var detailJson = JsonDocument.Parse(detailContent);
         Assert.False(detailJson.RootElement.TryGetProperty("exactAddress", out _));
+    }
+
+    [Fact]
+    public async Task Categories_endpoint_lists_only_the_approved_catalog()
+    {
+        using var client = await CreateVerifiedClientAsync();
+
+        using var response = await client.GetAsync("/api/v1/changas/categories");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        var ids = body.RootElement.EnumerateArray()
+            .Select(category => category.GetProperty("id").GetString())
+            .ToArray();
+        Assert.Equal(
+            new[]
+            {
+                "cocina-preparacion-basica",
+                "compras-mandados",
+                "cuidado-mascotas",
+                "jardineria-basica",
+                "limpieza-domestica",
+                "organizacion-hogar"
+            },
+            ids);
+    }
+
+    [Fact]
+    public async Task Unapproved_category_is_rejected_and_not_listed()
+    {
+        using var client = await CreateVerifiedClientAsync();
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/changas",
+            ValidRequest() with { categoryId = "trabajo-electrico" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        Assert.Equal("category_not_approved", body.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -108,7 +159,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
         var errors = body.RootElement.GetProperty("errors");
-        Assert.All(new[] { "description", "reward", "zone", "exactAddress", "materialsNeeded" },
+        Assert.All(new[] { "description", "reward", "zone", "exactAddress", "materialsNeeded", "categoryId" },
             expected => Assert.True(errors.TryGetProperty(expected, out _), $"Missing validation error for {expected}."));
 
         using var list = await client.GetAsync("/api/v1/changas");
@@ -203,6 +254,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
         using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
         var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
 
         using var first = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
         using var retry = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
@@ -225,6 +277,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
         using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
         var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
         using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
         Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
 
@@ -269,6 +322,80 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
     }
 
     [Fact]
+    public async Task Author_lists_and_cancels_only_own_available_publication_without_private_data()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var other = await CreateVerifiedClientAsync();
+        var address = $"Calle privada {Guid.NewGuid():N}";
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest(address));
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+
+        using var mine = await author.GetAsync("/api/v1/changas/mine");
+        var mineContent = await mine.Content.ReadAsStringAsync();
+        using var mineJson = JsonDocument.Parse(mineContent);
+        Assert.Equal(HttpStatusCode.OK, mine.StatusCode);
+        Assert.Contains(mineJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
+        Assert.DoesNotContain(address, mineContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("exactAddress", mineContent, StringComparison.OrdinalIgnoreCase);
+        using var otherMine = await other.GetAsync("/api/v1/changas/mine");
+        using var otherMineJson = await JsonDocument.ParseAsync(await otherMine.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(otherMineJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
+
+        using var forbidden = await other.PostAsync($"/api/v1/changas/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        using var forbiddenJson = await JsonDocument.ParseAsync(await forbidden.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_cancel_forbidden", forbiddenJson.RootElement.GetProperty("code").GetString());
+
+        using var cancelled = await author.PostAsync($"/api/v1/changas/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        var cancelledContent = await cancelled.Content.ReadAsStringAsync();
+        using var cancelledJson = JsonDocument.Parse(cancelledContent);
+        Assert.Equal("cancelled", cancelledJson.RootElement.GetProperty("status").GetString());
+        Assert.DoesNotContain(address, cancelledContent, StringComparison.Ordinal);
+
+        using var board = await author.GetAsync("/api/v1/changas");
+        using var boardJson = await JsonDocument.ParseAsync(await board.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(boardJson.RootElement.EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
+        using var mineAfter = await author.GetAsync("/api/v1/changas/mine");
+        using var mineAfterJson = await JsonDocument.ParseAsync(await mineAfter.Content.ReadAsStreamAsync());
+        Assert.Contains(mineAfterJson.RootElement.EnumerateArray(), item =>
+            item.GetProperty("id").GetGuid() == id && item.GetProperty("status").GetString() == "cancelled");
+    }
+
+    [Fact]
+    public async Task Author_cannot_cancel_an_assigned_changa_and_unknown_id_is_not_found()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+
+        using var conflict = await author.PostAsync($"/api/v1/changas/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        using var conflictJson = await JsonDocument.ParseAsync(await conflict.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_already_assigned", conflictJson.RootElement.GetProperty("code").GetString());
+
+        using var missing = await author.PostAsync($"/api/v1/changas/{Guid.NewGuid()}/cancel", null);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        using var missingJson = await JsonDocument.ParseAsync(await missing.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_not_found", missingJson.RootElement.GetProperty("code").GetString());
+
+        using var pending = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var pendingJson = await JsonDocument.ParseAsync(await pending.Content.ReadAsStreamAsync());
+        var pendingId = pendingJson.RootElement.GetProperty("id").GetGuid();
+        using var notAvailable = await author.PostAsync($"/api/v1/changas/{pendingId}/cancel", null);
+        Assert.Equal(HttpStatusCode.Conflict, notAvailable.StatusCode);
+        using var notAvailableJson = await JsonDocument.ParseAsync(await notAvailable.Content.ReadAsStreamAsync());
+        Assert.Equal("changa_not_available", notAvailableJson.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task Author_cannot_take_own_changa_and_other_worker_gets_stable_conflict()
     {
         using var author = await CreateVerifiedClientAsync();
@@ -277,6 +404,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
         using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
         var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
 
         using var self = await author.PostAsync($"/api/v1/changas/{id}/take", null);
         Assert.Equal(HttpStatusCode.Conflict, self.StatusCode);
@@ -305,6 +433,10 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
             ValidRequest(farAddress) with { latitude = -31.5000, longitude = -64.3000 });
         Assert.Equal(HttpStatusCode.Created, nearby.StatusCode);
         Assert.Equal(HttpStatusCode.Created, far.StatusCode);
+        using var nearbyJson = await JsonDocument.ParseAsync(await nearby.Content.ReadAsStreamAsync());
+        using var farJson = await JsonDocument.ParseAsync(await far.Content.ReadAsStreamAsync());
+        await ApproveAsync(nearbyJson.RootElement.GetProperty("id").GetGuid());
+        await ApproveAsync(farJson.RootElement.GetProperty("id").GetGuid());
 
         using var response = await client.GetAsync(
             "/api/v1/changas?latitude=-31.4167&longitude=-64.1833&radiusKm=1");
@@ -345,6 +477,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest(address));
         using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
         var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
         using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
         Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
         using var authorShared = await author.PutAsJsonAsync(
@@ -382,6 +515,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest(address));
         using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
         var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
         using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
         Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
 
@@ -497,6 +631,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var notAssigned = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
         using var notAssignedJson = await JsonDocument.ParseAsync(await notAssigned.Content.ReadAsStreamAsync());
         var availableId = notAssignedJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(availableId);
         using var noAssignment = await author.GetAsync($"/api/v1/changas/{availableId}/coordination");
         using var noAssignmentBody = await JsonDocument.ParseAsync(await noAssignment.Content.ReadAsStreamAsync());
         Assert.Equal(HttpStatusCode.Conflict, noAssignment.StatusCode);
@@ -506,6 +641,315 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         using var missingBody = await JsonDocument.ParseAsync(await missing.Content.ReadAsStreamAsync());
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         Assert.Equal("changa_not_found", missingBody.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Completion_flow_enforces_roles_and_confirms_without_closing_or_releasing_assignment()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var outsider = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+        using var unassigned = await author.GetAsync($"/api/v1/changas/{id}/completion");
+        using var unassignedJson = await JsonDocument.ParseAsync(await unassigned.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Conflict, unassigned.StatusCode);
+        Assert.Equal("changa_not_assigned", unassignedJson.RootElement.GetProperty("code").GetString());
+        using var unknown = await author.GetAsync($"/api/v1/changas/{Guid.NewGuid()}/completion");
+        using var unknownJson = await JsonDocument.ParseAsync(await unknown.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.Equal("changa_not_found", unknownJson.RootElement.GetProperty("code").GetString());
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+
+        using var workerRead = await worker.GetAsync($"/api/v1/changas/{id}/completion");
+        using var workerReadJson = await JsonDocument.ParseAsync(await workerRead.Content.ReadAsStreamAsync());
+        Assert.Equal("assigned", workerReadJson.RootElement.GetProperty("status").GetString());
+        using var wrongMark = await author.PostAsync($"/api/v1/changas/{id}/completion/mark-done", null);
+        Assert.Equal(HttpStatusCode.Forbidden, wrongMark.StatusCode);
+        using var wrongMarkJson = await JsonDocument.ParseAsync(await wrongMark.Content.ReadAsStreamAsync());
+        Assert.Equal("completion_forbidden", wrongMarkJson.RootElement.GetProperty("code").GetString());
+        using var outsiderRead = await outsider.GetAsync($"/api/v1/changas/{id}/completion");
+        using var outsiderJson = await JsonDocument.ParseAsync(await outsiderRead.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, outsiderRead.StatusCode);
+        Assert.Equal("completion_forbidden", outsiderJson.RootElement.GetProperty("code").GetString());
+        using var outsiderAction = await outsider.PostAsync($"/api/v1/changas/{id}/completion/reject", null);
+        using var outsiderActionJson = await JsonDocument.ParseAsync(await outsiderAction.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, outsiderAction.StatusCode);
+        Assert.Equal("completion_forbidden", outsiderActionJson.RootElement.GetProperty("code").GetString());
+
+        using var marked = await worker.PostAsync($"/api/v1/changas/{id}/completion/mark-done", null);
+        Assert.Equal(HttpStatusCode.OK, marked.StatusCode);
+        using var markedJson = await JsonDocument.ParseAsync(await marked.Content.ReadAsStreamAsync());
+        Assert.Equal("pending_response", markedJson.RootElement.GetProperty("status").GetString());
+        using var repeatMark = await worker.PostAsync($"/api/v1/changas/{id}/completion/mark-done", null);
+        using var repeatMarkJson = await JsonDocument.ParseAsync(await repeatMark.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Conflict, repeatMark.StatusCode);
+        Assert.Equal("completion_invalid_state", repeatMarkJson.RootElement.GetProperty("code").GetString());
+        var markedAt = markedJson.RootElement.GetProperty("markedDoneAt").GetDateTimeOffset();
+        var deadline = markedJson.RootElement.GetProperty("responseDeadline").GetDateTimeOffset();
+        Assert.Equal(TimeSpan.FromMinutes(20), deadline - markedAt);
+        Assert.False(markedJson.RootElement.TryGetProperty("exactAddress", out _));
+
+        using var wrongConfirm = await worker.PostAsync($"/api/v1/changas/{id}/completion/confirm", null);
+        Assert.Equal(HttpStatusCode.Forbidden, wrongConfirm.StatusCode);
+        using var wrongReject = await worker.PostAsync($"/api/v1/changas/{id}/completion/reject", null);
+        Assert.Equal(HttpStatusCode.Forbidden, wrongReject.StatusCode);
+        using var confirmed = await author.PostAsync($"/api/v1/changas/{id}/completion/confirm", null);
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+        using var confirmedJson = await JsonDocument.ParseAsync(await confirmed.Content.ReadAsStreamAsync());
+        Assert.Equal("confirmed", confirmedJson.RootElement.GetProperty("status").GetString());
+        using var connection = new Microsoft.Data.SqlClient.SqlConnection(
+            $"Server=(localdb)\\MSSQLLocalDB;Database={factory.DatabaseName};Trusted_Connection=True;TrustServerCertificate=True");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Status FROM Changas WHERE Id = @Id";
+        command.Parameters.AddWithValue("@Id", id);
+        Assert.Equal("Confirmed", await command.ExecuteScalarAsync());
+        using var coordination = await worker.GetAsync("/api/v1/coordinations");
+        Assert.Equal(HttpStatusCode.OK, coordination.StatusCode);
+        Assert.Contains(id.ToString(), await coordination.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Rating_requires_normal_close_is_unique_and_profiles_expose_only_aggregates()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var outsider = await CreateVerifiedClientAsync();
+        var changaIds = new List<Guid>();
+
+        foreach (var score in new[] { 5, 3 })
+        {
+            using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+            using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+            var id = createdJson.RootElement.GetProperty("id").GetGuid();
+            changaIds.Add(id);
+            await ApproveAsync(id);
+            using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+            Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+
+            if (score == 5)
+            {
+                await SetChangaStatusAsync(id, "Confirmed");
+                using var ineligible = await author.GetAsync($"/api/v1/changas/{id}/rating");
+                Assert.Equal(HttpStatusCode.OK, ineligible.StatusCode);
+                using var ineligibleJson = await JsonDocument.ParseAsync(await ineligible.Content.ReadAsStreamAsync());
+                Assert.False(ineligibleJson.RootElement.GetProperty("canRate").GetBoolean());
+                using var notClosed = await author.PostAsJsonAsync(
+                    $"/api/v1/changas/{id}/rating", new { score });
+                using var notClosedJson = await JsonDocument.ParseAsync(await notClosed.Content.ReadAsStreamAsync());
+                Assert.Equal(HttpStatusCode.Conflict, notClosed.StatusCode);
+                Assert.Equal("rating_not_available", notClosedJson.RootElement.GetProperty("code").GetString());
+            }
+
+            await SetChangaStatusAsync(id, "Completed");
+            using var eligible = await author.GetAsync($"/api/v1/changas/{id}/rating");
+            using var eligibleJson = await JsonDocument.ParseAsync(await eligible.Content.ReadAsStreamAsync());
+            Assert.True(eligibleJson.RootElement.GetProperty("canRate").GetBoolean());
+            using var commentAttempt = await author.PostAsJsonAsync(
+                $"/api/v1/changas/{id}/rating", new { score, comment = "Buena experiencia." });
+            Assert.Equal(HttpStatusCode.BadRequest, commentAttempt.StatusCode);
+            using var submission = await author.PostAsJsonAsync(
+                $"/api/v1/changas/{id}/rating", new { score });
+            Assert.Equal(HttpStatusCode.Created, submission.StatusCode);
+
+            if (score == 5)
+            {
+                using var duplicate = await author.PostAsJsonAsync(
+                    $"/api/v1/changas/{id}/rating", new { score = 4 });
+                using var duplicateJson = await JsonDocument.ParseAsync(await duplicate.Content.ReadAsStreamAsync());
+                Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+                Assert.Equal("rating_already_submitted", duplicateJson.RootElement.GetProperty("code").GetString());
+                using var invalid = await author.PostAsJsonAsync(
+                    $"/api/v1/changas/{id}/rating", new { score = 6 });
+                Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+                using var decimalScore = await author.PostAsJsonAsync(
+                    $"/api/v1/changas/{id}/rating", new { score = 2.5 });
+                Assert.Equal(HttpStatusCode.BadRequest, decimalScore.StatusCode);
+                using var forbidden = await outsider.PostAsJsonAsync(
+                    $"/api/v1/changas/{id}/rating", new { score = 4 });
+                using var forbiddenJson = await JsonDocument.ParseAsync(await forbidden.Content.ReadAsStreamAsync());
+                Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+                Assert.Equal("rating_forbidden", forbiddenJson.RootElement.GetProperty("code").GetString());
+            }
+        }
+
+        var workerProfileId = await GetCurrentAccountIdAsync(worker);
+        using var workerProfile = await worker.GetAsync("/api/v1/accounts/me/profile");
+        using var workerProfileJson = await JsonDocument.ParseAsync(await workerProfile.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, workerProfile.StatusCode);
+        Assert.Equal(4, workerProfileJson.RootElement.GetProperty("averageRating").GetDouble());
+        Assert.Equal(2, workerProfileJson.RootElement.GetProperty("ratingCount").GetInt32());
+        Assert.False(workerProfileJson.RootElement.TryGetProperty("raterId", out _));
+        Assert.False(workerProfileJson.RootElement.TryGetProperty("email", out _));
+
+        using var anonymousClient = factory.CreateClient();
+        using var anonymousOwnProfile = await anonymousClient.GetAsync("/api/v1/accounts/me/profile");
+        using var anonymousOtherProfile = await anonymousClient.GetAsync(
+            $"/api/v1/accounts/{workerProfileId}/profile");
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousOwnProfile.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousOtherProfile.StatusCode);
+        using var missingProfile = await author.GetAsync($"/api/v1/accounts/{Guid.NewGuid()}/profile");
+        Assert.Equal(HttpStatusCode.NotFound, missingProfile.StatusCode);
+
+        using var publicProfile = await outsider.GetAsync($"/api/v1/accounts/{workerProfileId}/profile");
+        using var publicProfileJson = await JsonDocument.ParseAsync(await publicProfile.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, publicProfile.StatusCode);
+        Assert.Equal(4, publicProfileJson.RootElement.GetProperty("averageRating").GetDouble());
+        Assert.Equal(2, publicProfileJson.RootElement.GetProperty("ratingCount").GetInt32());
+
+        using var emptyProfile = await author.GetAsync("/api/v1/accounts/me/profile");
+        using var emptyProfileJson = await JsonDocument.ParseAsync(await emptyProfile.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, emptyProfile.StatusCode);
+        Assert.Equal(JsonValueKind.Null, emptyProfileJson.RootElement.GetProperty("averageRating").ValueKind);
+        Assert.Equal(0, emptyProfileJson.RootElement.GetProperty("ratingCount").GetInt32());
+
+        using var outsiderRead = await outsider.GetAsync($"/api/v1/changas/{changaIds[0]}/rating");
+        using var outsiderReadJson = await JsonDocument.ParseAsync(await outsiderRead.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, outsiderRead.StatusCode);
+        Assert.Equal("rating_forbidden", outsiderReadJson.RootElement.GetProperty("code").GetString());
+
+        using var reciprocal = await worker.PostAsJsonAsync(
+            $"/api/v1/changas/{changaIds[0]}/rating", new { score = 3 });
+        Assert.Equal(HttpStatusCode.Created, reciprocal.StatusCode);
+        using var authorProfile = await author.GetAsync("/api/v1/accounts/me/profile");
+        using var authorProfileJson = await JsonDocument.ParseAsync(await authorProfile.Content.ReadAsStreamAsync());
+        Assert.Equal(3, authorProfileJson.RootElement.GetProperty("averageRating").GetDouble());
+        Assert.Equal(1, authorProfileJson.RootElement.GetProperty("ratingCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Rating_opens_only_after_real_close_through_completion_and_both_payment_declarations()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+        using var marked = await worker.PostAsync($"/api/v1/changas/{id}/completion/mark-done", null);
+        Assert.Equal(HttpStatusCode.OK, marked.StatusCode);
+        using var confirmed = await author.PostAsync($"/api/v1/changas/{id}/completion/confirm", null);
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+
+        using var afterConfirm = await author.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 5 });
+        Assert.Equal(HttpStatusCode.Conflict, afterConfirm.StatusCode);
+
+        using var paid = await author.PostAsync($"/api/v1/changas/{id}/payment-declaration", null);
+        Assert.Equal(HttpStatusCode.OK, paid.StatusCode);
+        using var afterOneDeclaration = await worker.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 5 });
+        Assert.Equal(HttpStatusCode.Conflict, afterOneDeclaration.StatusCode);
+
+        using var received = await worker.PostAsync($"/api/v1/changas/{id}/payment-declaration", null);
+        Assert.Equal(HttpStatusCode.OK, received.StatusCode);
+        using var rated = await worker.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 5 });
+        Assert.Equal(HttpStatusCode.Created, rated.StatusCode);
+        using var duplicate = await worker.PostAsJsonAsync($"/api/v1/changas/{id}/rating", new { score = 1 });
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+    }
+
+    [Fact]
+    public async Task Completion_rejection_and_expiration_leave_assignment_in_review_and_reject_late_answers()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var created = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var createdJson = await JsonDocument.ParseAsync(await created.Content.ReadAsStreamAsync());
+        var id = createdJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(id);
+        using var taken = await worker.PostAsync($"/api/v1/changas/{id}/take", null);
+        using var marked = await worker.PostAsync($"/api/v1/changas/{id}/completion/mark-done", null);
+        Assert.Equal(HttpStatusCode.OK, marked.StatusCode);
+        using var rejected = await author.PostAsync($"/api/v1/changas/{id}/completion/reject", null);
+        using var rejectedJson = await JsonDocument.ParseAsync(await rejected.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+        Assert.Equal("completion_review", rejectedJson.RootElement.GetProperty("status").GetString());
+        Assert.Equal("rejected", rejectedJson.RootElement.GetProperty("reviewCause").GetString());
+        using var lateConfirm = await author.PostAsync($"/api/v1/changas/{id}/completion/confirm", null);
+        using var lateJson = await JsonDocument.ParseAsync(await lateConfirm.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Conflict, lateConfirm.StatusCode);
+        Assert.Equal("completion_not_pending", lateJson.RootElement.GetProperty("code").GetString());
+
+        using var newCreated = await author.PostAsJsonAsync("/api/v1/changas", ValidRequest());
+        using var newJson = await JsonDocument.ParseAsync(await newCreated.Content.ReadAsStreamAsync());
+        var expiredId = newJson.RootElement.GetProperty("id").GetGuid();
+        await ApproveAsync(expiredId);
+        using var newTaken = await worker.PostAsync($"/api/v1/changas/{expiredId}/take", null);
+        using var newMarked = await worker.PostAsync($"/api/v1/changas/{expiredId}/completion/mark-done", null);
+        Assert.Equal(HttpStatusCode.OK, newMarked.StatusCode);
+        using (var connection = new Microsoft.Data.SqlClient.SqlConnection(
+            $"Server=(localdb)\\MSSQLLocalDB;Database={factory.DatabaseName};Trusted_Connection=True;TrustServerCertificate=True"))
+        {
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE ChangaAssignment SET CompletionDeadline = @Deadline WHERE ChangaId = @Id";
+            command.Parameters.AddWithValue("@Deadline", DateTimeOffset.UtcNow.AddMinutes(-1));
+            command.Parameters.AddWithValue("@Id", expiredId);
+            Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        }
+        using var expiredRead = await author.GetAsync($"/api/v1/changas/{expiredId}/completion");
+        using var expiredJson = await JsonDocument.ParseAsync(await expiredRead.Content.ReadAsStreamAsync());
+        Assert.Equal("completion_review", expiredJson.RootElement.GetProperty("status").GetString());
+        Assert.Equal("expired", expiredJson.RootElement.GetProperty("reviewCause").GetString());
+        using (var connection = new Microsoft.Data.SqlClient.SqlConnection(
+            $"Server=(localdb)\\MSSQLLocalDB;Database={factory.DatabaseName};Trusted_Connection=True;TrustServerCertificate=True"))
+        {
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT c.Status, a.CompletionReviewCause FROM Changas c JOIN ChangaAssignment a ON a.ChangaId = c.Id WHERE c.Id = @Id";
+            command.Parameters.AddWithValue("@Id", expiredId);
+            using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("CompletionReview", reader.GetString(0));
+            Assert.Equal("expired", reader.GetString(1));
+        }
+        using var lateReject = await author.PostAsync($"/api/v1/changas/{expiredId}/completion/reject", null);
+        using var lateRejectJson = await JsonDocument.ParseAsync(await lateReject.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Conflict, lateReject.StatusCode);
+        Assert.Equal("completion_not_pending", lateRejectJson.RootElement.GetProperty("code").GetString());
+    }
+
+    private async Task ApproveAsync(Guid changaId)
+    {
+        await using var connection = new Microsoft.Data.SqlClient.SqlConnection(
+            $"Server=(localdb)\\MSSQLLocalDB;Database={factory.DatabaseName};Trusted_Connection=True;TrustServerCertificate=True");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE Changas SET Status = N'Available' WHERE Id = @Id";
+        command.Parameters.AddWithValue("@Id", changaId);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync());
+    }
+
+    private async Task SetChangaStatusAsync(Guid changaId, string status)
+    {
+        await using var connection = new Microsoft.Data.SqlClient.SqlConnection(
+            $"Server=(localdb)\\MSSQLLocalDB;Database={factory.DatabaseName};Trusted_Connection=True;TrustServerCertificate=True");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE Changas SET Status = @Status WHERE Id = @Id";
+        command.Parameters.AddWithValue("@Status", status);
+        command.Parameters.AddWithValue("@Id", changaId);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync());
+    }
+
+    private async Task<string> GetCurrentAccountIdAsync(HttpClient client)
+    {
+        using var account = await client.GetAsync("/api/v1/accounts/me");
+        using var accountJson = await JsonDocument.ParseAsync(await account.Content.ReadAsStreamAsync());
+        var email = accountJson.RootElement.GetProperty("email").GetString();
+        await using var connection = new Microsoft.Data.SqlClient.SqlConnection(
+            $"Server=(localdb)\\MSSQLLocalDB;Database={factory.DatabaseName};Trusted_Connection=True;TrustServerCertificate=True");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id FROM AspNetUsers WHERE Email = @Email";
+        command.Parameters.AddWithValue("@Email", email);
+        return (string)(await command.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("No se encontró la cuenta del perfil de prueba."));
     }
 
     private async Task<HttpClient> CreateVerifiedClientAsync(AccountApiFactory? apiFactory = null)
@@ -529,6 +973,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
     }
 
     private static ChangaRequest ValidRequest(string exactAddress = "Calle privada 123, Córdoba") => new(
+        "limpieza-domestica",
         "Una changa descriptiva de prueba.",
         15000,
         "Nueva Córdoba",
@@ -539,6 +984,7 @@ public sealed class ChangaApiTests(AccountApiFactory factory) : IClassFixture<Ac
         null);
 
     private sealed record ChangaRequest(
+        string categoryId,
         string description,
         int reward,
         string zone,

@@ -1,0 +1,107 @@
+@page "/perfil"
+@page "/perfil/{AccountId}"
+@using System.Globalization
+@inject HttpClient Http
+
+<PageTitle>Perfil · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">PERFIL</p>
+        <h1>Experiencia en changas</h1>
+        <p class="intro">Las calificaciones se muestran como un resumen; no se identifica quién envió cada nota.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando calificaciones…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
+    }
+    else if (Profile is { RatingCount: > 0, AverageRating: not null })
+    {
+        <section class="account-card" aria-labelledby="rating-profile-heading">
+            <h2 id="rating-profile-heading">Calificaciones recibidas</h2>
+            <p>Promedio: <strong>@Profile.AverageRating.Value.ToString("0.0", CultureInfo.GetCultureInfo("es-AR"))</strong> / 5</p>
+            <p>Cantidad: <strong>@Profile.RatingCount</strong></p>
+        </section>
+    }
+    else
+    {
+        <p class="status" role="status">Todavía no hay calificaciones.</p>
+    }
+</main>
+
+@code {
+    [Parameter] public string? AccountId { get; set; }
+
+    private RatingProfile? Profile;
+    private bool Loading = true;
+    private string? Error;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        var path = string.IsNullOrWhiteSpace(AccountId)
+            ? "/api/v1/accounts/me/profile"
+            : $"/api/v1/accounts/{Uri.EscapeDataString(AccountId)}/profile";
+        try
+        {
+            using var response = await Http.GetAsync(path);
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = await ReadErrorAsync(response, "No se pudo cargar el perfil. Intentá de nuevo.");
+                return;
+            }
+
+            Profile = await response.Content.ReadFromJsonAsync<RatingProfile>();
+            if (Profile is null)
+            {
+                Error = "No se pudo leer el perfil. Intentá de nuevo.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Intentá de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. Intentá de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response, string fallback)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("detail", out var detail) &&
+                !string.IsNullOrWhiteSpace(detail.GetString()))
+            {
+                return detail.GetString()!;
+            }
+        }
+        catch (JsonException)
+        {
+            return fallback;
+        }
+
+        return fallback;
+    }
+
+    private sealed record RatingProfile(double? AverageRating, int RatingCount);
+}
