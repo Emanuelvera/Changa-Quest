@@ -61,7 +61,7 @@ Implementado sobre `story/3.2` (base `83dc4fdd3b37ad6696dd10fdb5b79dc96414f53d`)
 
 Validación visual automatizada de tokens: contraste de 15.46:1 para Warm Ink sobre Night Slate, 12.92:1 en Raised Slate, 9.52:1 para Muted Ink sobre Raised Slate y 8.23:1 para Brass Ink sobre Brass. Los tres colores semánticos superan 4.5:1 en sus superficies tintadas. Se comprobaron también los breakpoints, el tema, el foco por teclado y movimiento reducido. La app y el CSS devolvieron HTTP 200 en el smoke test. No se pudo completar una inspección visual con navegador/capturas en este entorno.
 
-La suite final pasó 211 de 212 pruebas. La única falla es `AccountBlockApiTests.Blocking_is_confirmed_by_the_client_request_and_is_idempotent` (espera `Created`, recibe `InternalServerError`), problema preexistente y ajeno a este cambio. Una ejecución anterior también encontró errores transitorios de conexión/autenticación SQL Server; en la ejecución final las pruebas de integración pasaron.
+En la rama inicial basada en `story/3.2`, la suite pasó 211 de 212 pruebas; la única falla fue `AccountBlockApiTests.Blocking_is_confirmed_by_the_client_request_and_is_idempotent` (esperaba `Created`, recibió `InternalServerError`). Al preparar el PR aislado sobre `dev`, la suite completa pasó 205 de 205 pruebas; el caso de AccountBlocks no forma parte del estado de `dev`.
 
 ## Spec Change Log
 
