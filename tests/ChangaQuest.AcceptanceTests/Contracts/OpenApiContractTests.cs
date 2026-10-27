@@ -108,6 +108,24 @@ public class OpenApiContractTests
     }
 
     [Fact]
+    public void Report_review_contract_covers_party_responses_decisions_appeals_and_private_case_views()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+
+        Assert.Contains("/api/v1/reports/{id}/case:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/reports/{id}/responses:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/reports/{id}/decision:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/reports/{id}/appeals:", contract, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/reports/{id}/appeals/{appealId}/resolution:", contract, StringComparison.Ordinal);
+        Assert.Contains("ReportResponseRequest:", contract, StringComparison.Ordinal);
+        Assert.Contains("ReportDecisionRequest:", contract, StringComparison.Ordinal);
+        Assert.Contains("evidenceConsidered:", contract, StringComparison.Ordinal);
+        Assert.Contains("ReportCase:", contract, StringComparison.Ordinal);
+        Assert.Contains("ReportAppealResolutionRequest:", contract, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Coordination_contract_describes_the_phone_consent_variants_and_private_responses()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");

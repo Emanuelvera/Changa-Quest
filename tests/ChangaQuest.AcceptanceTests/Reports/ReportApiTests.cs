@@ -122,6 +122,102 @@ public sealed class ReportApiTests(AccountApiFactory factory) : IClassFixture<Ac
     }
 
     [Fact]
+    public async Task Parties_can_respond_receive_a_decision_and_appeal_without_exposing_private_evidence()
+    {
+        using var author = await CreateVerifiedClientAsync();
+        using var worker = await CreateVerifiedClientAsync();
+        using var reporter = await CreateVerifiedClientAsync();
+        using var unrelated = await CreateVerifiedClientAsync();
+        var (admin, adminEmail, adminPassword) = await CreateVerifiedClientWithCredentialsAsync();
+        using var _ = admin;
+        var changaId = await CreateChangaAsync(author);
+        await SetChangaAvailableAsync(changaId);
+        using var taken = await worker.PostAsync($"/api/v1/changas/{changaId}/take", null);
+        Assert.Equal(HttpStatusCode.OK, taken.StatusCode);
+
+        using var submitted = await reporter.PostAsJsonAsync(
+            "/api/v1/reports",
+            new { changaId, reason = "Motivo privado", evidence = "Evidencia privada" });
+        using var submittedJson = await JsonDocument.ParseAsync(await submitted.Content.ReadAsStreamAsync());
+        var reportId = submittedJson.RootElement.GetProperty("id").GetGuid();
+
+        await GrantAdministratorAsync(adminEmail);
+        using var login = await admin.PostAsJsonAsync("/api/v1/accounts/login", new { email = adminEmail, password = adminPassword });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+
+        using var authorCase = await author.GetAsync($"/api/v1/reports/{reportId}/case");
+        using var workerCase = await worker.GetAsync($"/api/v1/reports/{reportId}/case");
+        using var unrelatedCase = await unrelated.GetAsync($"/api/v1/reports/{reportId}/case");
+        Assert.Equal(HttpStatusCode.OK, authorCase.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, workerCase.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, unrelatedCase.StatusCode);
+        var caseBody = await authorCase.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("Motivo privado", caseBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Evidencia privada", caseBody, StringComparison.Ordinal);
+        using var unauthorizedDecision = await author.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/decision",
+            new { conclusion = "No autorizada", reason = "Motivo", evidenceConsidered = false });
+        using var unrelatedResponse = await unrelated.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/responses", new { text = "Respuesta de una persona ajena" });
+        using var prematureAppeal = await author.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/appeals", new { text = "Apelación prematura" });
+        Assert.Equal(HttpStatusCode.Forbidden, unauthorizedDecision.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, unrelatedResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, prematureAppeal.StatusCode);
+
+        using var authorResponse = await author.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/responses", new { text = "Respuesta de quien solicita" });
+        using var workerResponse = await worker.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/responses", new { text = "Respuesta de quien realiza" });
+        using var adminReport = await admin.GetAsync($"/api/v1/reports/{reportId}");
+        using var adminReportJson = await JsonDocument.ParseAsync(await adminReport.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Created, authorResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, workerResponse.StatusCode);
+        Assert.Equal(2, adminReportJson.RootElement.GetProperty("responses").GetArrayLength());
+
+        var initialChangaStatus = await GetChangaStatusAsync(changaId);
+        using var decision = await admin.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/decision",
+            new { conclusion = "Se revisó el reporte", reason = "Motivo de la decisión", evidenceConsidered = true });
+        using var decisionJson = await JsonDocument.ParseAsync(await decision.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, decision.StatusCode);
+        Assert.Equal("Se revisó el reporte", decisionJson.RootElement.GetProperty("conclusion").GetString());
+        Assert.Equal(initialChangaStatus, await GetChangaStatusAsync(changaId));
+        using var duplicateDecision = await admin.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/decision",
+            new { conclusion = "Segunda conclusión", reason = "Motivo", evidenceConsidered = false });
+        Assert.Equal(HttpStatusCode.Conflict, duplicateDecision.StatusCode);
+
+        using var caseAfterDecision = await author.GetAsync($"/api/v1/reports/{reportId}/case");
+        using var caseJson = await JsonDocument.ParseAsync(await caseAfterDecision.Content.ReadAsStreamAsync());
+        Assert.True(caseJson.RootElement.GetProperty("canAppeal").GetBoolean());
+        using var lateResponse = await author.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/responses", new { text = "Respuesta tardía" });
+        Assert.Equal(HttpStatusCode.Conflict, lateResponse.StatusCode);
+
+        using var appeal = await author.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/appeals", new { text = "Apelo la decisión" });
+        using var appealJson = await JsonDocument.ParseAsync(await appeal.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.Created, appeal.StatusCode);
+        var appealId = appealJson.RootElement.GetProperty("id").GetGuid();
+        using var unrelatedAppeal = await unrelated.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/appeals", new { text = "Apelación ajena" });
+        Assert.Equal(HttpStatusCode.Forbidden, unrelatedAppeal.StatusCode);
+        using var unauthorizedResolution = await unrelated.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/appeals/{appealId}/resolution",
+            new { resolution = "No autorizada" });
+        Assert.Equal(HttpStatusCode.Forbidden, unauthorizedResolution.StatusCode);
+
+        using var resolution = await admin.PostAsJsonAsync(
+            $"/api/v1/reports/{reportId}/appeals/{appealId}/resolution",
+            new { resolution = "Se mantiene la decisión" });
+        using var resolutionJson = await JsonDocument.ParseAsync(await resolution.Content.ReadAsStreamAsync());
+        Assert.Equal(HttpStatusCode.OK, resolution.StatusCode);
+        Assert.Equal("resolved", resolutionJson.RootElement.GetProperty("status").GetString());
+        Assert.Equal("Se mantiene la decisión", resolutionJson.RootElement.GetProperty("resolution").GetString());
+    }
+
+    [Fact]
     public async Task Ineligible_session_cannot_submit()
     {
         var (client, email, _) = await CreateVerifiedClientWithCredentialsAsync();
@@ -150,6 +246,13 @@ public sealed class ReportApiTests(AccountApiFactory factory) : IClassFixture<Ac
         return json.RootElement.GetProperty("id").GetGuid();
     }
 
+    private async Task SetChangaAvailableAsync(Guid changaId)
+    {
+        await ExecuteAsync(
+            "UPDATE Changas SET Status = N'Available' WHERE Id = @Id",
+            ("@Id", changaId));
+    }
+
     private async Task<long> CountReportsAsync(Guid changaId)
     {
         await using var connection = new Microsoft.Data.SqlClient.SqlConnection(ConnectionString);
@@ -158,6 +261,16 @@ public sealed class ReportApiTests(AccountApiFactory factory) : IClassFixture<Ac
         command.CommandText = "SELECT COUNT(*) FROM Reports WHERE ChangaId = @Id";
         command.Parameters.AddWithValue("@Id", changaId);
         return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
+    private async Task<string> GetChangaStatusAsync(Guid changaId)
+    {
+        await using var connection = new Microsoft.Data.SqlClient.SqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Status FROM Changas WHERE Id = @Id";
+        command.Parameters.AddWithValue("@Id", changaId);
+        return (string)(await command.ExecuteScalarAsync())!;
     }
 
     private async Task GrantAdministratorAsync(string email)

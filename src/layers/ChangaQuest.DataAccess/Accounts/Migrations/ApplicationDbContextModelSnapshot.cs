@@ -331,44 +331,6 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         });
                 });
 
-            modelBuilder.Entity("ChangaQuest.Entities.Reports.Report", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("ChangaId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("Evidence")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("ReporterId")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("nvarchar(16)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChangaId");
-
-                    b.ToTable("Reports");
-                });
-
             modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaRating", b =>
                 {
                     b.Property<Guid>("Id")
@@ -406,6 +368,131 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         {
                             t.HasCheckConstraint("CK_ChangaRatings_Score", "[Score] >= 1 AND [Score] <= 5");
                         });
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Reports.Report", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChangaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Conclusion")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DecisionMakerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Evidence")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool?>("EvidenceConsidered")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("ReporterId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangaId");
+
+                    b.ToTable("Reports");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Reports.ReportAppeal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AppellantId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Resolution")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ResolverId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReportId");
+
+                    b.ToTable("ReportAppeals");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Reports.ReportResponse", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AuthorId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReportId");
+
+                    b.ToTable("ReportResponses");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
@@ -552,15 +639,6 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.Navigation("Changa");
                 });
 
-            modelBuilder.Entity("ChangaQuest.Entities.Reports.Report", b =>
-                {
-                    b.HasOne("ChangaQuest.Entities.Changas.Changa", null)
-                        .WithMany()
-                        .HasForeignKey("ChangaId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaCancellationRequest", b =>
                 {
                     b.HasOne("ChangaQuest.Entities.Changas.Changa", "Changa")
@@ -579,7 +657,41 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         .HasForeignKey("ChangaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
                     b.Navigation("Changa");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Reports.Report", b =>
+                {
+                    b.HasOne("ChangaQuest.Entities.Changas.Changa", "Changa")
+                        .WithMany()
+                        .HasForeignKey("ChangaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Changa");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Reports.ReportAppeal", b =>
+                {
+                    b.HasOne("ChangaQuest.Entities.Reports.Report", "Report")
+                        .WithMany("Appeals")
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Report");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Reports.ReportResponse", b =>
+                {
+                    b.HasOne("ChangaQuest.Entities.Reports.Report", "Report")
+                        .WithMany("Responses")
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Report");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -638,6 +750,13 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.Navigation("Assignment");
 
                     b.Navigation("CancellationRequests");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Reports.Report", b =>
+                {
+                    b.Navigation("Appeals");
+
+                    b.Navigation("Responses");
                 });
 #pragma warning restore 612, 618
         }

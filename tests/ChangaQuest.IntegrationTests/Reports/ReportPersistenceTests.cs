@@ -10,7 +10,7 @@ namespace ChangaQuest.IntegrationTests.Reports;
 public class ReportPersistenceTests
 {
     [Fact]
-    public async Task Migration_persists_a_report_with_and_without_evidence_and_restricts_unknown_changas()
+    public async Task Migration_persists_report_review_responses_decisions_appeals_and_restricts_unknown_changas()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseSqlServer($"Server=(localdb)\\MSSQLLocalDB;Database=ChangaQuestReports_{Guid.NewGuid():N};Trusted_Connection=True;TrustServerCertificate=True")
@@ -38,13 +38,45 @@ public class ReportPersistenceTests
 
             await store.AddAsync(withEvidence);
             await store.AddAsync(withoutEvidence);
+            var response = new ReportResponse
+            {
+                Id = Guid.NewGuid(),
+                ReportId = withEvidence.Id,
+                AuthorId = "author-id",
+                Text = "Respuesta de la persona solicitante",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            Assert.Equal(ReportMutationStatus.Updated, await store.AddResponseAsync(response));
+            Assert.Equal(
+                ReportMutationStatus.Updated,
+                await store.RecordDecisionAsync(
+                    withEvidence.Id, "admin-id", "Conclusión", "Motivo de decisión", true, DateTimeOffset.UtcNow));
+            var appeal = new ReportAppeal
+            {
+                Id = Guid.NewGuid(),
+                ReportId = withEvidence.Id,
+                AppellantId = "worker-id",
+                Text = "Apelación",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            Assert.Equal(ReportMutationStatus.Updated, await store.AddAppealAsync(appeal));
+            Assert.Equal(
+                ReportMutationStatus.Updated,
+                await store.ResolveAppealAsync(
+                    withEvidence.Id, appeal.Id, "other-admin-id", "Resolución", DateTimeOffset.UtcNow));
 
             await using var readContext = new ApplicationDbContext(options);
             var readStore = new ReportStore(readContext);
             var first = await readStore.FindByIdAsync(withEvidence.Id);
             var second = await readStore.FindByIdAsync(withoutEvidence.Id);
             Assert.Equal("Evidencia", first!.Evidence);
-            Assert.Equal(ReportStatus.Pending, first.Status);
+            Assert.Equal(ReportStatus.Decided, first.Status);
+            Assert.Equal("Conclusión", first.Conclusion);
+            Assert.Equal("Motivo de decisión", first.DecisionReason);
+            Assert.True(first.EvidenceConsidered);
+            Assert.Equal("author-id", Assert.Single(first.Responses).AuthorId);
+            Assert.Equal("Resolución", Assert.Single(first.Appeals).Resolution);
+            Assert.Equal("other-admin-id", Assert.Single(first.Appeals).ResolverId);
             Assert.Equal(changa.Id, first.ChangaId);
             Assert.Null(second!.Evidence);
             Assert.Null(await readStore.FindByIdAsync(Guid.NewGuid()));

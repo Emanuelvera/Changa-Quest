@@ -171,13 +171,78 @@ public sealed class ReportManagerTests
         Assert.Null(other.Report);
     }
 
+    [Fact]
+    public async Task Parties_can_respond_until_decision_and_only_see_their_own_response()
+    {
+        var fixture = new Fixture(administrators: ["admin"]);
+        var report = fixture.Reports.Seed("reporter", fixture.ChangaId, "Motivo privado", "Evidencia privada");
+
+        var authorResponse = await fixture.Manager.SubmitResponseAsync("author", report.Id, new("Respuesta del solicitante"));
+        var workerResponse = await fixture.Manager.SubmitResponseAsync("worker", report.Id, new("Respuesta de la realizadora"));
+        var decision = await fixture.Manager.DecideAsync(
+            "admin", report.Id, new("Conclusión", "Motivo de decisión", true));
+        var lateResponse = await fixture.Manager.SubmitResponseAsync("author", report.Id, new("Respuesta tardía"));
+        var partyCase = await fixture.Manager.GetCaseAsync("author", report.Id);
+
+        Assert.Equal(ReportManagerStatus.Success, authorResponse.Status);
+        Assert.Equal(ReportManagerStatus.Success, workerResponse.Status);
+        Assert.Equal(ReportManagerStatus.Success, decision.Status);
+        Assert.Equal(ReportManagerStatus.CaseClosed, lateResponse.Status);
+        Assert.Equal(ReportStatus.Decided, report.Status);
+        Assert.Equal("Conclusión", report.Conclusion);
+        Assert.True(report.EvidenceConsidered);
+        Assert.Equal(ReportManagerStatus.Success, partyCase.Status);
+        Assert.Single(partyCase.Case!.MyResponses);
+        Assert.Equal("Respuesta del solicitante", partyCase.Case.MyResponses[0].Text);
+        Assert.Equal("Conclusión", partyCase.Case.Decision!.Conclusion);
+    }
+
+    [Fact]
+    public async Task Unrelated_people_cannot_respond_or_appeal_and_appeal_requires_a_decision()
+    {
+        var fixture = new Fixture();
+        var report = fixture.Reports.Seed("reporter", fixture.ChangaId, "Motivo", null);
+
+        var unrelatedResponse = await fixture.Manager.SubmitResponseAsync("outsider", report.Id, new("No autorizado"));
+        var prematureAppeal = await fixture.Manager.AppealAsync("author", report.Id, new("Apelación prematura"));
+
+        Assert.Equal(ReportManagerStatus.PartyForbidden, unrelatedResponse.Status);
+        Assert.Equal(ReportManagerStatus.DecisionMissing, prematureAppeal.Status);
+        Assert.Empty(report.Responses);
+        Assert.Empty(report.Appeals);
+    }
+
+    [Fact]
+    public async Task Any_administrator_can_resolve_an_appeal()
+    {
+        var fixture = new Fixture(administrators: ["first-admin", "second-admin"]);
+        var report = fixture.Reports.Seed("reporter", fixture.ChangaId, "Motivo", null);
+        await fixture.Manager.DecideAsync(
+            "first-admin", report.Id, new("Conclusión", "Motivo de decisión", false));
+        var appeal = await fixture.Manager.AppealAsync("worker", report.Id, new("No estoy de acuerdo"));
+
+        var resolution = await fixture.Manager.ResolveAppealAsync(
+            "second-admin", report.Id, appeal.Appeal!.Id, new("Se mantiene la conclusión"));
+
+        Assert.Equal(ReportManagerStatus.Success, resolution.Status);
+        var savedAppeal = Assert.Single(report.Appeals);
+        Assert.Equal("second-admin", savedAppeal.ResolverId);
+        Assert.Equal("Se mantiene la conclusión", savedAppeal.Resolution);
+    }
+
     private sealed class Fixture
     {
         public Fixture(bool emailConfirmed = true, bool declaredAdult = true, string[]? administrators = null)
         {
-            var changa = new Changa { Id = Guid.NewGuid(), AuthorId = "author", Status = ChangaStatus.Available };
+            var changa = new Changa
+            {
+                Id = Guid.NewGuid(),
+                AuthorId = "author",
+                Status = ChangaStatus.Assigned,
+                Assignment = new ChangaAssignment { WorkerId = "worker" }
+            };
             ChangaId = changa.Id;
-            Reports = new FakeReportStore();
+            Reports = new FakeReportStore(changa);
             Manager = new ReportManager(
                 Reports,
                 new FakeChangaStore(changa),
@@ -195,7 +260,7 @@ public sealed class ReportManagerTests
         public override DateTimeOffset GetUtcNow() => now;
     }
 
-    private sealed class FakeReportStore : IReportStore
+    private sealed class FakeReportStore(Changa changa) : IReportStore
     {
         public List<Report> Items { get; } = [];
         public bool FailOnAdd { get; set; }
@@ -205,7 +270,7 @@ public sealed class ReportManagerTests
             var report = new Report
             {
                 Id = Guid.NewGuid(), ReporterId = reporterId, ChangaId = changaId,
-                Reason = reason, Evidence = evidence, CreatedAt = Now
+                Reason = reason, Evidence = evidence, CreatedAt = Now, Changa = changa
             };
             Items.Add(report);
             return report;
@@ -223,6 +288,89 @@ public sealed class ReportManagerTests
         }
 
         public Task<Report?> FindByIdAsync(Guid id) => Task.FromResult(Items.SingleOrDefault(report => report.Id == id));
+
+        public Task<ReportMutationStatus> AddResponseAsync(ReportResponse response)
+        {
+            var report = Items.SingleOrDefault(item => item.Id == response.ReportId);
+            if (report is null)
+            {
+                return Task.FromResult(ReportMutationStatus.NotFound);
+            }
+
+            if (report.Status != ReportStatus.Pending)
+            {
+                return Task.FromResult(ReportMutationStatus.Conflict);
+            }
+
+            report.Responses.Add(response);
+            return Task.FromResult(ReportMutationStatus.Updated);
+        }
+
+        public Task<ReportMutationStatus> RecordDecisionAsync(
+            Guid reportId, string reviewerId, string conclusion, string reason,
+            bool evidenceConsidered, DateTimeOffset decidedAt)
+        {
+            var report = Items.SingleOrDefault(item => item.Id == reportId);
+            if (report is null)
+            {
+                return Task.FromResult(ReportMutationStatus.NotFound);
+            }
+
+            if (report.Status != ReportStatus.Pending)
+            {
+                return Task.FromResult(ReportMutationStatus.Conflict);
+            }
+
+            report.Status = ReportStatus.Decided;
+            report.DecisionMakerId = reviewerId;
+            report.Conclusion = conclusion;
+            report.DecisionReason = reason;
+            report.EvidenceConsidered = evidenceConsidered;
+            report.DecidedAt = decidedAt;
+            return Task.FromResult(ReportMutationStatus.Updated);
+        }
+
+        public Task<ReportMutationStatus> AddAppealAsync(ReportAppeal appeal)
+        {
+            var report = Items.SingleOrDefault(item => item.Id == appeal.ReportId);
+            if (report is null)
+            {
+                return Task.FromResult(ReportMutationStatus.NotFound);
+            }
+
+            if (report.Status != ReportStatus.Decided)
+            {
+                return Task.FromResult(ReportMutationStatus.Conflict);
+            }
+
+            report.Appeals.Add(appeal);
+            return Task.FromResult(ReportMutationStatus.Updated);
+        }
+
+        public Task<ReportMutationStatus> ResolveAppealAsync(
+            Guid reportId, Guid appealId, string resolverId, string resolution, DateTimeOffset resolvedAt) =>
+            Task.FromResult(ResolveAppeal(reportId, appealId, resolverId, resolution, resolvedAt));
+
+        private ReportMutationStatus ResolveAppeal(
+            Guid reportId, Guid appealId, string resolverId, string resolution, DateTimeOffset resolvedAt)
+        {
+            var appeal = Items.SingleOrDefault(item => item.Id == reportId)?.Appeals
+                .SingleOrDefault(item => item.Id == appealId);
+            if (appeal is null)
+            {
+                return ReportMutationStatus.NotFound;
+            }
+
+            if (appeal.ResolvedAt is not null)
+            {
+                return ReportMutationStatus.Conflict;
+            }
+
+            appeal.ResolverId = resolverId;
+            appeal.Resolution = resolution;
+            appeal.ResolvedAt = resolvedAt;
+            return ReportMutationStatus.Updated;
+        }
     }
 
     private sealed class FakeChangaStore(Changa changa) : IChangaStore
