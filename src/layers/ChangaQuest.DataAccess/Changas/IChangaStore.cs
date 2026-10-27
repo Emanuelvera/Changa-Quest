@@ -24,6 +24,10 @@ public interface IChangaStore
     Task<ChangaRatingPersistenceResult> AddRatingAsync(ChangaRating rating);
     Task<ChangaRatingAggregate> GetRatingAggregateAsync(string rateeId);
     Task EnsureSamplesAsync(IReadOnlyCollection<Changa> samples);
+    Task<ChangaCancellationPersistenceResult> CreateCancellationRequestAsync(
+        Guid changaId, string requestedById, string targetId);
+    Task<ChangaCancellationPersistenceResult> RespondCancellationRequestAsync(
+        Guid changaId, Guid requestId, string responderId, bool accept);
     Task<IReadOnlyList<ChangaCategory>> ListApprovedCategoriesAsync() =>
         Task.FromResult<IReadOnlyList<ChangaCategory>>(ChangaCategoryCatalog.Approved);
     Task<ChangaCategory?> FindCategoryAsync(string id) =>
@@ -37,6 +41,20 @@ public enum ChangaTakePersistenceResult
     AlreadyAssignedToWorker,
     AlreadyAssignedToOther,
     NotAvailable,
+    NotFound
+}
+
+public sealed record ChangaCancellationPersistenceResult(
+    ChangaCancellationPersistenceStatus Status,
+    ChangaCancellationRequest? Request = null);
+
+public enum ChangaCancellationPersistenceStatus
+{
+    Created,
+    Accepted,
+    Rejected,
+    Forbidden,
+    Conflict,
     NotFound
 }
 

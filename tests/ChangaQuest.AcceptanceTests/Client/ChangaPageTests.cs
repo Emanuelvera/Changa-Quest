@@ -362,6 +362,42 @@ public sealed class ChangaPageTests : Bunit.TestContext
     }
 
     [Fact]
+    public void Coordinations_list_keeps_mutual_cancellation_confirmation_after_assignment_is_released()
+    {
+        var getCount = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                getCount++;
+                return Task.FromResult(getCount == 1
+                    ? Json("""[{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"pending","otherPartyConsent":"not_shared","hasMutualConsent":false,"otherPhone":null,"exactAddress":null,"cancellationRequest":{"id":"a1000000-0000-4000-8000-000000000002","changaId":"a1000000-0000-4000-8000-000000000001","status":"pending","requestedByRole":"requester","createdAt":"2026-01-01T12:00:00Z","respondedAt":null}}]""")
+                    : Json("[]"));
+            }
+
+            if (request.Method == HttpMethod.Post)
+            {
+                return Task.FromResult(Json("""{"code":"cancellation_request_updated"}"""));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
+        });
+        Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
+        JSInterop.Setup<bool>("confirm", _ => true).SetResult(true);
+
+        var page = Render<ChangaQuest.Client.Pages.Coordinaciones>();
+
+        page.WaitForAssertion(() => Assert.Contains("Aceptar cancelación", page.Markup));
+        page.Find("button").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("La cancelación fue confirmada y la asignación fue liberada.", page.Markup);
+            Assert.DoesNotContain("Organizar una changa ficticia.", page.Markup);
+        });
+    }
+
+    [Fact]
     public void Completion_page_marks_work_done_and_shows_a_clear_response_deadline()
     {
         var id = Guid.Parse("a1000000-0000-4000-8000-000000000001");
@@ -661,7 +697,6 @@ public sealed class ChangaPageTests : Bunit.TestContext
         app.WaitForAssertion(() => Assert.Contains("2,0", app.Markup));
         Assert.DoesNotContain("4,0", app.Markup, StringComparison.Ordinal);
     }
-
     private const string PendingCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"pending","otherPartyConsent":"accepted","hasMutualConsent":false,"otherPhone":null,"exactAddress":"Dirección ficticia 123"}""";
     private const string MutualCoordination = """{"changaId":"a1000000-0000-4000-8000-000000000001","description":"Organizar una changa ficticia.","role":"worker","yourConsent":"accepted","otherPartyConsent":"accepted","hasMutualConsent":true,"otherPhone":"+54 351 555-0199","exactAddress":"Dirección ficticia 123"}""";
     private const string TimeoutMessage = "La solicitud tardó demasiado. Intentá de nuevo.";

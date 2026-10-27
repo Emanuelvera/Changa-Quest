@@ -413,6 +413,77 @@ public sealed class ChangaManager(
         return new ChangaManagerResult(ChangaManagerStatus.Success, Coordinations: coordinations);
     }
 
+    public async Task<ChangaManagerResult> ProposeCancellationAsync(string? userId, Guid changaId)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var changa = await changaStore.FindByIdAsync(changaId);
+        if (changa is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.NotFound);
+        }
+
+        if (changa.Status != ChangaStatus.Assigned || changa.Assignment is null)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.CancellationConflict);
+        }
+
+        if (changa.AuthorId != userId && changa.Assignment.WorkerId != userId)
+        {
+            return new ChangaManagerResult(ChangaManagerStatus.CancellationForbidden);
+        }
+
+        var targetId = changa.AuthorId == userId ? changa.Assignment.WorkerId : changa.AuthorId;
+        var persistence = await changaStore.CreateCancellationRequestAsync(changaId, userId!, targetId!);
+        return persistence.Status switch
+        {
+            ChangaCancellationPersistenceStatus.Created =>
+                new ChangaManagerResult(ChangaManagerStatus.Success,
+                    CancellationRequest: ProjectCancellation(persistence.Request!)),
+            ChangaCancellationPersistenceStatus.NotFound =>
+                new ChangaManagerResult(ChangaManagerStatus.NotFound),
+            ChangaCancellationPersistenceStatus.Conflict =>
+                new ChangaManagerResult(ChangaManagerStatus.CancellationConflict),
+            _ => new ChangaManagerResult(ChangaManagerStatus.CancellationForbidden)
+        };
+    }
+
+    public async Task<ChangaManagerResult> RespondCancellationAsync(
+        string? userId, Guid changaId, Guid requestId, bool accept)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null)
+        {
+            return access;
+        }
+
+        var persistence = await changaStore.RespondCancellationRequestAsync(
+            changaId, requestId, userId!, accept);
+        if (persistence.Request is not null)
+        {
+            persistence.Request.Changa = await changaStore.FindByIdAsync(changaId)
+                ?? persistence.Request.Changa;
+        }
+        return persistence.Status switch
+        {
+            ChangaCancellationPersistenceStatus.Accepted or ChangaCancellationPersistenceStatus.Rejected =>
+                new ChangaManagerResult(
+                    ChangaManagerStatus.Success,
+                    CancellationRequest: ProjectCancellation(persistence.Request!)),
+            ChangaCancellationPersistenceStatus.NotFound =>
+                new ChangaManagerResult(ChangaManagerStatus.NotFound),
+            ChangaCancellationPersistenceStatus.Forbidden =>
+                new ChangaManagerResult(ChangaManagerStatus.CancellationForbidden),
+            ChangaCancellationPersistenceStatus.Conflict =>
+                new ChangaManagerResult(ChangaManagerStatus.CancellationConflict),
+            _ => new ChangaManagerResult(ChangaManagerStatus.CancellationConflict)
+        };
+    }
+
     public async Task<ChangaManagerResult> GetRatingEligibilityAsync(string? userId, Guid id)
     {
         var access = await CheckAccessAsync(userId);
@@ -686,7 +757,6 @@ public sealed class ChangaManager(
         changa.Assignment?.RequesterPaymentDeclaredAt is not null,
         changa.Assignment?.WorkerPaymentDeclaredAt is not null,
         changa.Status == ChangaStatus.Completed);
-
     private static ChangaCoordinationRole? GetCoordinationRole(Changa changa, string userId)
     {
         if (changa.AuthorId == userId)
@@ -724,8 +794,29 @@ public sealed class ChangaManager(
             otherConsent == PhoneConsentStatus.Accepted ? "accepted" : "not_shared",
             mutualConsent,
             otherPhone,
-            requester ? null : changa.ExactAddress);
+            requester ? null : changa.ExactAddress,
+            changa.CancellationRequests
+                .OrderByDescending(item => item.CreatedAt)
+                .Select(ProjectCancellation)
+                .FirstOrDefault());
     }
+
+    private static ChangaCancellationRequestView ProjectCancellation(ChangaCancellationRequest request) =>
+        new(
+            request.Id,
+            request.ChangaId,
+            request.Status switch
+            {
+                ChangaCancellationRequestStatus.Accepted => "accepted",
+                ChangaCancellationRequestStatus.Rejected => "rejected",
+                _ => "pending"
+            },
+            request.RequestedById == request.Changa.AuthorId ? "requester" : "worker",
+            request.CreatedAt,
+            request.RespondedAt,
+            request.Status == ChangaCancellationRequestStatus.Pending
+                ? "cancellation_request_created"
+                : "cancellation_request_updated");
 
     private static string? GetRateeId(Changa changa, ChangaCoordinationRole role) =>
         role == ChangaCoordinationRole.Requester
@@ -958,6 +1049,8 @@ public enum ChangaManagerStatus
     CoordinationForbidden,
     NotAssigned,
     InvalidPhone,
+    CancellationForbidden,
+    CancellationConflict,
     InvalidCategory,
     InvalidReview,
     CompletionForbidden,
@@ -987,6 +1080,7 @@ public sealed record ChangaManagerResult(
     ChangaAssignmentView? Assignment = null,
     ChangaCoordinationView? Coordination = null,
     IReadOnlyList<ChangaCoordinationView>? Coordinations = null,
+    ChangaCancellationRequestView? CancellationRequest = null,
     ChangaCompletionView? Completion = null,
     ChangaPaymentDeclarationView? PaymentDeclaration = null,
     ChangaRatingEligibilityView? RatingEligibility = null,
@@ -1019,7 +1113,17 @@ public sealed record ChangaCoordinationView(
     string OtherPartyConsent,
     bool HasMutualConsent,
     string? OtherPhone,
-    string? ExactAddress);
+    string? ExactAddress,
+    ChangaCancellationRequestView? CancellationRequest = null);
+
+public sealed record ChangaCancellationRequestView(
+    Guid Id,
+    Guid ChangaId,
+    string Status,
+    string RequestedByRole,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? RespondedAt,
+    string Code);
 
 public sealed record ChangaRatingEligibilityView(Guid ChangaId, bool CanRate, bool HasRated);
 

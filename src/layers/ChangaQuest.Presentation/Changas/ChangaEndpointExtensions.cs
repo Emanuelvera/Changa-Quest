@@ -105,6 +105,19 @@ public static class ChangaEndpointExtensions
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/cancellation-requests", ProposeCancellationAsync)
+            .Produces<ChangaCancellationRequestView>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        changas.MapPost("/{id:guid}/cancellation-requests/{requestId:guid}", RespondCancellationAsync)
+            .Produces<ChangaCancellationRequestView>(StatusCodes.Status200OK)
+            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
         endpoints.MapGet("/api/v1/coordinations", ListCoordinationsAsync)
             .WithTags("Changas")
             .RequireAuthorization()
@@ -458,6 +471,68 @@ public static class ChangaEndpointExtensions
         return result.Status switch
         {
             ChangaManagerStatus.Success => Results.Ok(result.Coordinations),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static async Task<IResult> ProposeCancellationAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var result = await manager.ProposeCancellationAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Created(
+                $"/api/v1/changas/{id}/cancellation-requests/{result.CancellationRequest!.Id}",
+                result.CancellationRequest),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound, "Changa no encontrada",
+                "No existe una changa con ese identificador.", "changa_not_found"),
+            ChangaManagerStatus.CancellationForbidden => Problem(
+                StatusCodes.Status403Forbidden, "Acceso denegado",
+                "Solo las partes asignadas pueden proponer una cancelación.",
+                "cancellation_request_forbidden"),
+            ChangaManagerStatus.CancellationConflict => Problem(
+                StatusCodes.Status409Conflict, "Solicitud incompatible",
+                "La changa ya tiene una solicitud pendiente o cambió de estado.",
+                "cancellation_request_conflict"),
+            _ => AccessProblem(result.Status)
+        };
+    }
+
+    private static async Task<IResult> RespondCancellationAsync(
+        Guid id,
+        Guid requestId,
+        JsonElement request,
+        ClaimsPrincipal principal,
+        ChangaManager manager)
+    {
+        var accept = ReadBoolean(request, "accept");
+        if (accept is null)
+        {
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]> { ["accept"] = ["Indicá si aceptás la cancelación."] },
+                title: "No se pudo responder la solicitud.");
+        }
+
+        var result = await manager.RespondCancellationAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier), id, requestId, accept.Value);
+        return result.Status switch
+        {
+            ChangaManagerStatus.Success => Results.Ok(result.CancellationRequest),
+            ChangaManagerStatus.NotFound => Problem(
+                StatusCodes.Status404NotFound, "Solicitud no encontrada",
+                "No existe una solicitud con ese identificador.", "cancellation_request_not_found"),
+            ChangaManagerStatus.CancellationForbidden => Problem(
+                StatusCodes.Status403Forbidden, "Acceso denegado",
+                "Solo la otra parte puede responder la solicitud.",
+                "cancellation_request_forbidden"),
+            ChangaManagerStatus.CancellationConflict => Problem(
+                StatusCodes.Status409Conflict, "Solicitud incompatible",
+                "La solicitud o la changa ya cambió de estado.",
+                "cancellation_request_conflict"),
             _ => AccessProblem(result.Status)
         };
     }
