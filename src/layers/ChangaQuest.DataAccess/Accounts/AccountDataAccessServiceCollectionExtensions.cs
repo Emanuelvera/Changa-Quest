@@ -29,6 +29,7 @@ public static class AccountDataAccessServiceCollectionExtensions
                 options.Password.RequireNonAlphanumeric = false;
                 options.Lockout.AllowedForNewUsers = false;
             })
+            .AddRoles<IdentityRole>()
             .AddSignInManager()
             .AddEntityFrameworkStores<ApplicationDbContext>()
             .AddDefaultTokenProviders();
