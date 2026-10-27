@@ -108,3 +108,14 @@ public sealed class ChangaAssignment
     public DateTimeOffset? WorkerPaymentDeclaredAt { get; set; }
     public Changa Changa { get; set; } = null!;
 }
+
+public sealed class ChangaRating
+{
+    public Guid Id { get; set; }
+    public Guid ChangaId { get; set; }
+    public string RaterId { get; set; } = string.Empty;
+    public string RateeId { get; set; } = string.Empty;
+    public int Score { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public Changa Changa { get; set; } = null!;
+}

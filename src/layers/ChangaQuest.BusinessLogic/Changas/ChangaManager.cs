@@ -413,6 +413,107 @@ public sealed class ChangaManager(
         return new ChangaManagerResult(ChangaManagerStatus.Success, Coordinations: coordinations);
     }
 
+    public async Task<ChangaManagerResult> GetRatingEligibilityAsync(string? userId, Guid id)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.RatingForbidden);
+
+        if (changa.Status != ChangaStatus.Completed || changa.Assignment is null)
+        {
+            return new(
+                ChangaManagerStatus.Success,
+                RatingEligibility: new ChangaRatingEligibilityView(id, false, false));
+        }
+
+        if (string.IsNullOrWhiteSpace(GetRateeId(changa, role.Value)))
+        {
+            return new(
+                ChangaManagerStatus.Success,
+                RatingEligibility: new ChangaRatingEligibilityView(id, false, false));
+        }
+
+        var hasRated = await changaStore.HasRatingAsync(id, userId!);
+        return new(
+            ChangaManagerStatus.Success,
+            RatingEligibility: new ChangaRatingEligibilityView(id, !hasRated, hasRated));
+    }
+
+    public async Task<ChangaManagerResult> SubmitRatingAsync(string? userId, Guid id, int? score)
+    {
+        var access = await CheckAccessAsync(userId);
+        if (access is not null) return access;
+
+        if (score is < 1 or > 5 or null)
+        {
+            return new(
+                ChangaManagerStatus.Invalid,
+                Errors: new Dictionary<string, string[]>
+                {
+                    ["score"] = ["La calificación debe ser un número entero entre 1 y 5."]
+                });
+        }
+
+        var changa = await changaStore.FindByIdAsync(id);
+        if (changa is null) return new(ChangaManagerStatus.NotFound);
+        var role = GetCoordinationRole(changa, userId!);
+        if (role is null) return new(ChangaManagerStatus.RatingForbidden);
+        if (changa.Status != ChangaStatus.Completed || changa.Assignment is null)
+        {
+            return new(ChangaManagerStatus.RatingNotAvailable);
+        }
+
+        var rateeId = GetRateeId(changa, role.Value);
+        if (string.IsNullOrWhiteSpace(rateeId))
+        {
+            return new(ChangaManagerStatus.RatingNotAvailable);
+        }
+
+        var rating = new ChangaRating
+        {
+            Id = Guid.NewGuid(),
+            ChangaId = changa.Id,
+            RaterId = userId!,
+            RateeId = rateeId,
+            Score = score.Value,
+            CreatedAt = UtcNow
+        };
+        var persisted = await changaStore.AddRatingAsync(rating);
+        if (persisted == ChangaRatingPersistenceResult.AlreadyExists)
+        {
+            return new(ChangaManagerStatus.RatingAlreadySubmitted);
+        }
+
+        return new(
+            ChangaManagerStatus.Success,
+            RatingReceipt: new ChangaRatingReceiptView(changa.Id, rating.Score));
+    }
+
+    public async Task<ChangaManagerResult> GetRatingProfileAsync(string? viewerId, string? profileId)
+    {
+        var access = await CheckAccessAsync(viewerId);
+        if (access is not null) return access;
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            return new(ChangaManagerStatus.NotFound);
+        }
+
+        var profile = await accountStore.FindByIdAsync(profileId);
+        if (profile is null || !profile.EmailConfirmed || !profile.DeclaredAdult)
+        {
+            return new(ChangaManagerStatus.NotFound);
+        }
+
+        var aggregate = await changaStore.GetRatingAggregateAsync(profileId);
+        return new(
+            ChangaManagerStatus.Success,
+            RatingProfile: new RatingProfileView(aggregate.AverageRating, aggregate.RatingCount));
+    }
+
     public async Task<ChangaManagerResult> GetCompletionAsync(string? userId, Guid id)
     {
         var access = await CheckCompletionAccessAsync(userId);
@@ -613,6 +714,7 @@ public sealed class ChangaManager(
             changa.Id,
             changa.Description,
             requester ? "requester" : "worker",
+            requester ? assignment.WorkerId : changa.AuthorId,
             ownConsent switch
             {
                 PhoneConsentStatus.Accepted => "accepted",
@@ -624,6 +726,11 @@ public sealed class ChangaManager(
             otherPhone,
             requester ? null : changa.ExactAddress);
     }
+
+    private static string? GetRateeId(Changa changa, ChangaCoordinationRole role) =>
+        role == ChangaCoordinationRole.Requester
+            ? changa.Assignment?.WorkerId
+            : changa.AuthorId;
 
     private static bool IsValidPhone(string? phone)
     {
@@ -859,7 +966,10 @@ public enum ChangaManagerStatus
     PaymentDeclarationForbidden,
     PaymentDeclarationUnavailable,
     PaymentDeclarationAlreadyRecorded,
-    CancelForbidden
+    CancelForbidden,
+    RatingForbidden,
+    RatingNotAvailable,
+    RatingAlreadySubmitted
 }
 
 public enum ChangaCoordinationRole
@@ -878,7 +988,10 @@ public sealed record ChangaManagerResult(
     ChangaCoordinationView? Coordination = null,
     IReadOnlyList<ChangaCoordinationView>? Coordinations = null,
     ChangaCompletionView? Completion = null,
-    ChangaPaymentDeclarationView? PaymentDeclaration = null);
+    ChangaPaymentDeclarationView? PaymentDeclaration = null,
+    ChangaRatingEligibilityView? RatingEligibility = null,
+    ChangaRatingReceiptView? RatingReceipt = null,
+    RatingProfileView? RatingProfile = null);
 
 public sealed record ChangaPaymentDeclarationView(
     Guid ChangaId,
@@ -901,8 +1014,15 @@ public sealed record ChangaCoordinationView(
     Guid ChangaId,
     string Description,
     string Role,
+    string? OtherPartyId,
     string YourConsent,
     string OtherPartyConsent,
     bool HasMutualConsent,
     string? OtherPhone,
     string? ExactAddress);
+
+public sealed record ChangaRatingEligibilityView(Guid ChangaId, bool CanRate, bool HasRated);
+
+public sealed record ChangaRatingReceiptView(Guid ChangaId, int Score);
+
+public sealed record RatingProfileView(double? AverageRating, int RatingCount);

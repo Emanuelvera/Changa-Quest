@@ -41,6 +41,11 @@
                         <p class="status" role="status">@(item.OtherPartyConsent == "accepted" ? "La otra parte aceptó; falta tu decisión para compartir los teléfonos." : "La otra parte no compartió su teléfono; los teléfonos siguen ocultos.")</p>
                     }
                     <a class="button-link" href="@($"/tareas/{item.ChangaId}/coordinacion")">Ver coordinación</a>
+                    <a class="button-link" href="@($"/tareas/{item.ChangaId}/calificacion")">Consultar disponibilidad para calificar</a>
+                    @if (!string.IsNullOrWhiteSpace(item.OtherPartyId))
+                    {
+                        <a class="button-link" href="@($"/perfil/{Uri.EscapeDataString(item.OtherPartyId)}")">Ver perfil de la otra parte</a>
+                    }
                 </article>
             }
         }
@@ -305,6 +310,7 @@
         Guid ChangaId,
         string Description,
         string Role,
+        string? OtherPartyId,
         string YourConsent,
         string OtherPartyConsent,
         bool HasMutualConsent,

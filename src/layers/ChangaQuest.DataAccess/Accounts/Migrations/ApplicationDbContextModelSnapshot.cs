@@ -292,6 +292,45 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaRating", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChangaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RateeId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("RaterId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RateeId");
+
+                    b.HasIndex("ChangaId", "RaterId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ChangaRatings_ChangaId_RaterId");
+
+                    b.ToTable("ChangaRatings", t =>
+                        {
+                            t.HasCheckConstraint("CK_ChangaRatings_Score", "[Score] >= 1 AND [Score] <= 5");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
@@ -430,6 +469,17 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                     b.HasOne("ChangaQuest.Entities.Changas.Changa", "Changa")
                         .WithOne("Assignment")
                         .HasForeignKey("ChangaQuest.Entities.Changas.ChangaAssignment", "ChangaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Changa");
+                });
+
+            modelBuilder.Entity("ChangaQuest.Entities.Changas.ChangaRating", b =>
+                {
+                    b.HasOne("ChangaQuest.Entities.Changas.Changa", "Changa")
+                        .WithMany()
+                        .HasForeignKey("ChangaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

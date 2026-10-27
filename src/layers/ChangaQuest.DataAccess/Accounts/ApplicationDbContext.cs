@@ -10,6 +10,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 {
     public DbSet<Changa> Changas => Set<Changa>();
     public DbSet<ChangaCategory> ChangaCategories => Set<ChangaCategory>();
+    public DbSet<ChangaRating> ChangaRatings => Set<ChangaRating>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -53,6 +54,25 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(assignment => assignment.RequesterPaymentDeclaredAt);
             entity.Property(assignment => assignment.WorkerPaymentDeclaredAt);
             entity.HasIndex(assignment => assignment.ChangaId).IsUnique();
+        });
+        builder.Entity<ChangaRating>(entity =>
+        {
+            entity.HasKey(rating => rating.Id);
+            entity.Property(rating => rating.RaterId).HasMaxLength(450).IsRequired();
+            entity.Property(rating => rating.RateeId).HasMaxLength(450).IsRequired();
+            entity.Property(rating => rating.Score).IsRequired();
+            entity.Property(rating => rating.CreatedAt).IsRequired();
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_ChangaRatings_Score",
+                "[Score] >= 1 AND [Score] <= 5"));
+            entity.HasOne(rating => rating.Changa)
+                .WithMany()
+                .HasForeignKey(rating => rating.ChangaId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(rating => new { rating.ChangaId, rating.RaterId })
+                .IsUnique()
+                .HasDatabaseName("IX_ChangaRatings_ChangaId_RaterId");
+            entity.HasIndex(rating => rating.RateeId);
         });
         builder.Entity<AppUser>()
             .Property(user => user.SearchLatitude)
