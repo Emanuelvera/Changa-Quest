@@ -13,6 +13,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<ChangaCategory> ChangaCategories => Set<ChangaCategory>();
     public DbSet<Report> Reports => Set<Report>();
     public DbSet<ChangaRating> ChangaRatings => Set<ChangaRating>();
+    public DbSet<AccountBlock> AccountBlocks => Set<AccountBlock>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -103,6 +104,14 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                 .IsUnique()
                 .HasDatabaseName("IX_ChangaRatings_ChangaId_RaterId");
             entity.HasIndex(rating => rating.RateeId);
+        });
+        builder.Entity<AccountBlock>(entity =>
+        {
+            entity.HasKey(block => block.Id);
+            entity.Property(block => block.BlockerId).HasMaxLength(450).IsRequired();
+            entity.Property(block => block.BlockedId).HasMaxLength(450).IsRequired();
+            entity.Property(block => block.CreatedAt).IsRequired();
+            entity.HasIndex(block => new { block.BlockerId, block.BlockedId }).IsUnique();
         });
         builder.Entity<AppUser>()
             .Property(user => user.SearchLatitude)

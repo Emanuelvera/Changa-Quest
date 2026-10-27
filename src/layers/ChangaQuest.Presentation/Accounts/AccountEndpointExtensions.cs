@@ -55,6 +55,13 @@ public static class AccountEndpointExtensions
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
+        accounts.MapPost("/{id}/block", BlockAsync)
+            .RequireAuthorization()
+            .Produces<AccountBlockResponse>(StatusCodes.Status201Created)
+            .Produces<AccountBlockResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return endpoints;
     }
@@ -196,6 +203,37 @@ public static class AccountEndpointExtensions
         return Results.Ok(new CurrentAccountResponse(user.Email ?? string.Empty));
     }
 
+    private static async Task<IResult> BlockAsync(
+        string id,
+        ClaimsPrincipal principal,
+        AccountBlockManager manager)
+    {
+        var result = await manager.BlockAsync(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier), id);
+        return result.Status switch
+        {
+            AccountBlockManagerStatus.Created => Results.Created(
+                $"/api/v1/accounts/{Uri.EscapeDataString(id)}/block",
+                new AccountBlockResponse("account_blocked", BlockBoundary.Detail)),
+            AccountBlockManagerStatus.AlreadyBlocked => Results.Ok(
+                new AccountBlockResponse("account_already_blocked", BlockBoundary.Detail)),
+            AccountBlockManagerStatus.AccountNotFound => Results.Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Cuenta no encontrada",
+                detail: "No existe la cuenta objetivo.",
+                extensions: new Dictionary<string, object?> { ["code"] = "account_not_found" }),
+            AccountBlockManagerStatus.CannotBlockSelf => Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "No se puede bloquear la propia cuenta",
+                detail: "Elegí otra cuenta.",
+                extensions: new Dictionary<string, object?> { ["code"] = "cannot_block_self" }),
+            _ => Results.Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Sesión no iniciada",
+                detail: "Iniciá sesión para continuar.")
+        };
+    }
+
     private static async Task<IResult> GetMyRatingProfileAsync(
         ClaimsPrincipal principal,
         ChangaManager manager)
@@ -237,3 +275,8 @@ public static class AccountEndpointExtensions
 public sealed record RegisterAccountRequest(string? Email, string? Password, bool DeclaredAdult);
 public sealed record SignInRequest(string? Email, string? Password);
 public sealed record CurrentAccountResponse(string Email);
+public sealed record AccountBlockResponse(string Status, string Detail);
+file static class BlockBoundary
+{
+    public const string Detail = "Este bloqueo no cancela ni resuelve una changa ya asignada.";
+}

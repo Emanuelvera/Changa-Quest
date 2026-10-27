@@ -12,6 +12,7 @@ public static class AccountBusinessLogicServiceCollectionExtensions
     {
         services.AddAccountDataAccess(configuration);
         services.AddScoped<AccountManager>();
+        services.AddScoped<AccountBlockManager>();
         return services;
     }
 }

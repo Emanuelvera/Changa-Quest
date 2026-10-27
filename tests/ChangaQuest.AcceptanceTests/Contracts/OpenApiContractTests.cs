@@ -196,6 +196,21 @@ public class OpenApiContractTests
         Assert.DoesNotContain("raterId:", profile, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Account_block_contract_describes_confirmation_boundary_and_stable_errors()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Contracts", "openapi-v1.yaml");
+        var contract = File.ReadAllText(path);
+
+        var block = ExtractOperation(contract, "  /api/v1/accounts/{id}/block:", "components:");
+        Assert.Contains("operationId: blockAccount", block, StringComparison.Ordinal);
+        Assert.Contains("account_blocked", block, StringComparison.Ordinal);
+        Assert.Contains("account_already_blocked", block, StringComparison.Ordinal);
+        Assert.Contains("cannot_block_self", block, StringComparison.Ordinal);
+        Assert.Contains("account_not_found", block, StringComparison.Ordinal);
+        Assert.Contains("no cancela ni resuelve", block, StringComparison.Ordinal);
+    }
+
     private static string ExtractOperation(string document, string start, string end)
     {
         var startIndex = document.IndexOf(start, StringComparison.Ordinal);

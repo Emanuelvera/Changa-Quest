@@ -63,6 +63,7 @@ public static class AccountDataAccessServiceCollectionExtensions
         });
         services.AddAuthorization();
         services.AddScoped<IAccountIdentityStore, IdentityAccountStore>();
+        services.AddScoped<IAccountBlockStore, AccountBlockStore>();
         services.AddHostedService<AccountDatabaseMigrationService>();
 
         return services;

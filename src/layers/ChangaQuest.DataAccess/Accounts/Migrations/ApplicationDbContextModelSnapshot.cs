@@ -331,6 +331,33 @@ namespace ChangaQuest.DataAccess.Accounts.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ChangaQuest.Entities.Accounts.AccountBlock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BlockedId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("BlockerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlockerId", "BlockedId")
+                        .IsUnique();
+
+                    b.ToTable("AccountBlocks");
+                });
+
             modelBuilder.Entity("ChangaQuest.Entities.Reports.Report", b =>
                 {
                     b.Property<Guid>("Id")
