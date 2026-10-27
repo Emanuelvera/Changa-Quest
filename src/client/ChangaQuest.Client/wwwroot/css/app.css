@@ -1,4 +1,4 @@
-:root {
+﻿:root {
     color-scheme: light;
     font-family: Inter, "Segoe UI", sans-serif;
     color: #25312d;
@@ -198,7 +198,9 @@ footer {
 
 a:focus-visible,
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
     outline: 3px solid #b05b19;
     outline-offset: 3px;
 }
@@ -243,4 +245,86 @@ footer {
         transition-duration: .01ms !important;
         animation-duration: .01ms !important;
     }
+}
+
+.field textarea,
+.field select {
+    width: 100%;
+    min-height: 2.9rem;
+    padding: .7rem .8rem;
+    border: 1px solid #89968c;
+    border-radius: .45rem;
+    background: white;
+    color: #1e2822;
+}
+
+.changa-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.changa-card {
+    padding: clamp(1.1rem, 3vw, 1.5rem);
+    border: 1px solid #d6d9cf;
+    border-radius: 1rem;
+    background: #fffefa;
+    box-shadow: 0 1rem 3rem #24352d12;
+}
+
+.changa-card h2 {
+    margin-top: .5rem;
+    font-size: clamp(1.15rem, 3vw, 1.5rem);
+}
+
+.changa-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+    gap: .8rem 1rem;
+    margin: 1rem 0;
+}
+
+.changa-details dt {
+    color: #56625c;
+    font-size: .85rem;
+    font-weight: 700;
+}
+
+.changa-details dd {
+    margin: .2rem 0 0;
+}
+
+.sample-label,
+.status-label {
+    display: inline-block;
+    margin: 0;
+    padding: .3rem .6rem;
+    border-radius: .3rem;
+    background: #e7eee5;
+    color: #254c36;
+    font-size: .85rem;
+    font-weight: 750;
+}
+
+.button-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.9rem;
+    margin-top: .75rem;
+    padding: .7rem 1.15rem;
+    border-radius: .45rem;
+    background: #285d3f;
+    color: white;
+    font-weight: 750;
+    text-decoration: none;
+}
+
+.coordination-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-top: 1rem;
+}
+
+.coordination-actions .button {
+    min-height: 2.9rem;
 }

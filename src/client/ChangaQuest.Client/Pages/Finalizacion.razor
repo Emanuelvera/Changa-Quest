@@ -1,0 +1,264 @@
+@page "/tareas/{Id:guid}/finalizacion"
+@inject HttpClient Http
+
+<PageTitle>Finalizaci&oacute;n &middot; Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">FINALIZACI&Oacute;N</p>
+        <h1>Registrar el resultado</h1>
+        <p class="intro">La confirmaci&oacute;n no cierra la changa. La aplicaci&oacute;n no procesa ni verifica pagos.</p>
+    </header>
+
+    @if (Loading)
+    {
+        <p class="status" role="status">Cargando estado de finalizaci&oacute;n...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="field-error" role="alert">@Error</p>
+        <button class="button secondary" type="button" @onclick="LoadAsync">Reintentar</button>
+    }
+    else if (Completion is not null)
+    {
+        <section class="account-card" aria-labelledby="completion-heading">
+            <h2 id="completion-heading">@Completion.Description</h2>
+            @if (Completion.Status == "assigned" && Completion.Role == "requester")
+            {
+                <p>Todav&iacute;a no se registr&oacute; que la realizaci&oacute;n est&aacute; terminada.</p>
+            }
+            else if (Completion.Status == "assigned" && Completion.Role == "worker")
+            {
+                <p>Cuando termines el trabajo, pod&eacute;s registrarlo para que la persona solicitante responda dentro de 20 minutos.</p>
+                <button class="button" type="button" @onclick="MarkDoneAsync" disabled="@Saving">@(Saving ? "Guardando..." : "Marcar como terminada")</button>
+            }
+            else if (Completion.Status == "pending_response")
+            {
+                <p class="status" role="status">La realizaci&oacute;n est&aacute; pendiente de respuesta.</p>
+                @if (Completion.ResponseDeadline is { } deadline)
+                {
+                    <p>La persona solicitante puede responder hasta <time datetime="@deadline.ToString("O")">@deadline.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</time>.</p>
+                }
+                @if (Completion.Role == "requester")
+                {
+                    <div class="coordination-actions">
+                        <button class="button" type="button" @onclick="() => RespondAsync(true)" disabled="@Saving">@(Saving ? "Guardando..." : "Confirmar realizaci&oacute;n")</button>
+                        <button class="button secondary" type="button" @onclick="() => RespondAsync(false)" disabled="@Saving">Rechazar y dejar pendiente de revisi&oacute;n</button>
+                    </div>
+                }
+            }
+            else if (Completion.Status == "completion_review")
+            {
+                <p class="status" role="status">La changa qued&oacute; pendiente de revisi&oacute;n por finalizaci&oacute;n. Sigue sin cerrarse y no se reasigna autom&aacute;ticamente.</p>
+                @if (Completion.ReviewCause == "expired")
+                {
+                    <p>El plazo de respuesta termin&oacute; sin una respuesta registrada.</p>
+                }
+                else if (Completion.ReviewCause == "rejected")
+                {
+                    <p>La realizaci&oacute;n fue rechazada y qued&oacute; pendiente de revisi&oacute;n.</p>
+                }
+            }
+            else if (Completion.Status == "confirmed")
+            {
+                <p class="status" role="status">La realizaci&oacute;n qued&oacute; confirmada. La changa sigue abierta; este paso no la cierra.</p>
+                @if (Payment is null || (Completion.Role == "requester" ? !Payment.RequesterPaid : !Payment.WorkerReceived))
+                {
+                    <p>El pago se declara por separado. La aplicaci&oacute;n no procesa ni verifica pagos.</p>
+                    <button class="button" type="button" @onclick="DeclarePaymentAsync" disabled="@Saving">@(Saving ? "Guardando..." : "Declarar pago")</button>
+                }
+                else
+                {
+                    <p class="status" role="status">
+                        Declaraciones registradas: solicitante @(Payment.RequesterPaid ? "sí" : "no"),
+                        realizadora @(Payment.WorkerReceived ? "sí" : "no").
+                    </p>
+                }
+            }
+            else if (Completion.Status == "completed")
+            {
+                <p class="status" role="status">Ambas personas registraron su declaración. La changa quedó cerrada; esto no verifica el pago.</p>
+            }
+            @if (!string.IsNullOrWhiteSpace(Success))
+            {
+                <p class="success-message" role="status">@Success</p>
+            }
+            @if (!string.IsNullOrWhiteSpace(ActionError))
+            {
+                <p class="field-error" role="alert">@ActionError</p>
+            }
+        </section>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private CompletionView? Completion;
+    private PaymentDeclarationView? Payment;
+    private bool Loading = true;
+    private bool Saving;
+    private string? Error;
+    private string? ActionError;
+    private string? Success;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Loading = true;
+        Error = null;
+        try
+        {
+            using var response = await Http.GetAsync($"/api/v1/changas/{Id}/completion");
+            if (!response.IsSuccessStatusCode)
+            {
+                Error = await ReadErrorAsync(response, "No se pudo cargar el estado de finalizaci&oacute;n. Intent&aacute; de nuevo.");
+                return;
+            }
+            Completion = await response.Content.ReadFromJsonAsync<CompletionView>();
+            if (Completion is null) Error = "No se pudo leer el estado de finalizaci&oacute;n. Intent&aacute; de nuevo.";
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. Intent&aacute; de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tard&oacute; demasiado. Intent&aacute; de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. Intent&aacute; de nuevo.";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private Task MarkDoneAsync() => SendActionAsync("mark-done", "Registramos que la changa est&aacute; terminada.");
+
+    private Task RespondAsync(bool confirm) => SendActionAsync(
+        confirm ? "confirm" : "reject",
+        confirm ? "La realizaci&oacute;n qued&oacute; confirmada; la changa sigue abierta." : "La changa qued&oacute; pendiente de revisi&oacute;n, sin cierre ni reasignaci&oacute;n.");
+
+    private async Task DeclarePaymentAsync()
+    {
+        Saving = true;
+        ActionError = null;
+        Success = null;
+        try
+        {
+            using var response = await Http.PostAsync($"/api/v1/changas/{Id}/payment-declaration", null);
+            if (!response.IsSuccessStatusCode)
+            {
+                ActionError = await ReadErrorAsync(response, "No se pudo registrar la declaración. Intentá de nuevo.");
+                return;
+            }
+            Payment = await response.Content.ReadFromJsonAsync<PaymentDeclarationView>();
+            if (Payment is null)
+            {
+                ActionError = "No se pudo leer la declaración. Intentá cargar el estado de nuevo.";
+                return;
+            }
+            Success = Payment.Closed
+                ? "Ambas declaraciones fueron registradas y la changa quedó cerrada."
+                : "Registramos tu declaración; falta la declaración de la otra persona.";
+            if (Payment.Closed)
+            {
+                await LoadAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+            ActionError = "No se pudo conectar con el servidor. No confirmamos el cambio; podés volver a intentarlo.";
+        }
+        catch (OperationCanceledException)
+        {
+            ActionError = "La solicitud tardó demasiado. Intentá de nuevo.";
+        }
+        catch (JsonException)
+        {
+            ActionError = "No se pudo leer la respuesta. Intentá cargar el estado de nuevo.";
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private async Task SendActionAsync(string action, string successMessage)
+    {
+        Saving = true;
+        ActionError = null;
+        Success = null;
+        try
+        {
+            using var response = await Http.PostAsync($"/api/v1/changas/{Id}/completion/{action}", null);
+            if (!response.IsSuccessStatusCode)
+            {
+                ActionError = await ReadErrorAsync(response, "No se pudo guardar la respuesta. Intent&aacute; de nuevo.");
+                if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    await LoadAsync();
+                }
+                return;
+            }
+            Completion = await response.Content.ReadFromJsonAsync<CompletionView>();
+            if (Completion is null)
+            {
+                ActionError = "No se pudo leer la respuesta. Intent&aacute; cargar el estado de nuevo.";
+                return;
+            }
+            Success = successMessage;
+        }
+        catch (HttpRequestException)
+        {
+            ActionError = "No se pudo conectar con el servidor. No confirmamos el cambio; pod&eacute;s volver a intentarlo.";
+        }
+        catch (OperationCanceledException)
+        {
+            ActionError = "La solicitud tard&oacute; demasiado. Intent&aacute; de nuevo.";
+        }
+        catch (JsonException)
+        {
+            ActionError = "No se pudo leer la respuesta. Intent&aacute; cargar el estado de nuevo.";
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response, string fallback)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("detail", out var detail) && !string.IsNullOrWhiteSpace(detail.GetString()))
+            {
+                return detail.GetString()!;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        return fallback;
+    }
+
+    private sealed record CompletionView(
+        Guid ChangaId,
+        string Description,
+        string Role,
+        string Status,
+        DateTimeOffset? MarkedDoneAt,
+        DateTimeOffset? ResponseDeadline,
+        string? ReviewCause);
+
+    private sealed record PaymentDeclarationView(
+        Guid ChangaId,
+        bool RequesterPaid,
+        bool WorkerReceived,
+        bool Closed);
+}

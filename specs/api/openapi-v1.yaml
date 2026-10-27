@@ -1,15 +1,15 @@
-openapi: 3.0.3
+﻿openapi: 3.0.3
 info:
   title: Changa Quest API
   version: 1.0.0
-  description: Contrato canónico para registro, verificación y acceso de la demo local.
+  description: Contrato canÃ³nico para registro, verificaciÃ³n y acceso de la demo local.
 servers:
   - url: /
 paths:
   /api/v1/accounts/register:
     post:
       operationId: registerAdultAccount
-      summary: Crea una cuenta pendiente de verificación
+      summary: Crea una cuenta pendiente de verificaciÃ³n
       requestBody:
         required: true
         content:
@@ -18,7 +18,7 @@ paths:
               $ref: "#/components/schemas/RegisterAccountRequest"
       responses:
         "202":
-          description: Cuenta creada; no inicia sesión. En Development, el enlace se registra en la consola local.
+          description: Cuenta creada; no inicia sesiÃ³n. En Development, el enlace se registra en la consola local.
           content:
             application/json:
               schema:
@@ -42,7 +42,7 @@ paths:
             type: string
       responses:
         "200":
-          description: Correo verificado; la persona puede iniciar sesión.
+          description: Correo verificado; la persona puede iniciar sesiÃ³n.
           content:
             text/html:
               schema:
@@ -52,7 +52,7 @@ paths:
   /api/v1/accounts/login:
     post:
       operationId: signInAccount
-      summary: Inicia sesión solo con cuenta adulta y correo verificado
+      summary: Inicia sesiÃ³n solo con cuenta adulta y correo verificado
       requestBody:
         required: true
         content:
@@ -61,14 +61,14 @@ paths:
               $ref: "#/components/schemas/SignInRequest"
       responses:
         "200":
-          description: Sesión autenticada mediante cookie HttpOnly de mismo origen.
+          description: SesiÃ³n autenticada mediante cookie HttpOnly de mismo origen.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
           headers:
             Set-Cookie:
-              description: Cookie de sesión HttpOnly; nunca se devuelve un token para almacenamiento JavaScript.
+              description: Cookie de sesiÃ³n HttpOnly; nunca se devuelve un token para almacenamiento JavaScript.
               schema:
                 type: string
         "401":
@@ -84,7 +84,7 @@ paths:
         - cookieAuth: []
       responses:
         "204":
-          description: Sesión cerrada.
+          description: SesiÃ³n cerrada.
         "401":
           $ref: "#/components/responses/Problem"
   /api/v1/accounts/me:
@@ -101,6 +101,717 @@ paths:
                 $ref: "#/components/schemas/CurrentAccount"
         "401":
           $ref: "#/components/responses/Problem"
+  /api/v1/accounts/me/profile:
+    get:
+      operationId: getMyRatingProfile
+      summary: Consulta el promedio y la cantidad de calificaciones de la cuenta autenticada
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Resumen agregado sin identidades de evaluadores.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingProfile"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/accounts/{id}/profile:
+    get:
+      operationId: getAccountRatingProfile
+      summary: Consulta el resumen de calificaciones de un perfil registrado
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resumen agregado sin identidades de evaluadores ni otros datos de cuenta.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingProfile"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /api/v1/changas:
+    get:
+      operationId: listAvailableChangas
+      summary: Busca changas disponibles dentro de un radio manual
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: latitude
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+          description: Latitud ficticia de la ubicación manual de búsqueda.
+        - name: longitude
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+          description: Longitud ficticia de la ubicación manual de búsqueda.
+        - name: radiusKm
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 3, 5, 10]
+            default: 3
+          description: Radio de búsqueda permitido en kilómetros.
+        - name: savePreference
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Guarda explícitamente la ubicación manual como preferencia.
+      responses:
+        "200":
+          description: Tablón filtrado por distancia; nunca incluye la dirección exacta.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Changa"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+    post:
+      operationId: createChanga
+      summary: Publica una changa pendiente de revisión
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChangaRequest"
+      responses:
+        "201":
+          description: Changa creada y pendiente de revisión; todavía no aparece en el tablón.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Changa"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/changas/mine:
+    get:
+      operationId: listMyUnassignedChangas
+      summary: Lista las publicaciones propias que todavía no tienen asignación
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Publicaciones propias sin asignación, incluidas las canceladas. Nunca incluye la dirección exacta.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Changa"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/changas/categories:
+    get:
+      operationId: listApprovedChangaCategories
+      summary: Lista las categorías aprobadas
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Catálogo estable de categorías aprobadas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChangaCategory"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/changas/{id}:
+    get:
+      operationId: getAvailableChanga
+      summary: Consulta el detalle público de una changa disponible
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Detalle público sin dirección exacta.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Changa"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /api/v1/changas/{id}/completion:
+    get:
+      operationId: getChangaCompletion
+      summary: Consulta la finalización solo para las partes asignadas
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado de finalización autorizado, sin dirección ni teléfono.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: El identificador no existe; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: La changa no está asignada; código changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/rating:
+    get:
+      operationId: getChangaRatingEligibility
+      summary: Consulta si una parte puede calificar a la otra
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado de elegibilidad; no incluye la calificación de la otra parte.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaRatingEligibility"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código rating_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: submitChangaRating
+      summary: Registra una nota sin texto para la otra parte tras el cierre normal
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitChangaRatingRequest"
+      responses:
+        "201":
+          description: Calificación registrada; la respuesta no incluye identidad del evaluador.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaRatingReceipt"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código rating_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: Estado no elegible o calificación ya enviada; rating_not_available o rating_already_submitted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/completion/mark-done:
+    post:
+      operationId: markChangaDone
+      summary: La persona realizadora asignada marca la changa como terminada
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Se inicia el plazo de 20 minutos para responder.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no puede marcar la finalización; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: Estado incompatible o sin asignación; completion_invalid_state o changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/completion/confirm:
+    post:
+      operationId: confirmChangaCompletion
+      summary: La persona solicitante confirma la realización antes del vencimiento
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: La realización queda confirmada; la changa no se cierra.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no puede responder; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: finalización no pendiente o sin asignación; completion_not_pending o changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/completion/reject:
+    post:
+      operationId: rejectChangaCompletion
+      summary: La persona solicitante rechaza la realización antes del vencimiento
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: La changa queda pendiente de revisión por finalización, sin cierre ni reasignación.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCompletion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no puede responder; código completion_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: finalización no pendiente o sin asignación; completion_not_pending o changa_not_assigned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/payment-declaration:
+    post:
+      operationId: declareChangaPayment
+      summary: Declara el pago externo o su recepción, según el rol asignado
+      description: No procesa ni verifica pagos. La segunda declaración cierra la changa.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado de las declaraciones individuales.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaPaymentDeclaration"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código payment_declaration_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La declaración no está disponible o ya fue registrada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/coordination:
+    get:
+      operationId: getChangaCoordination
+      summary: Consulta coordinación solo para las partes asignadas
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Datos autorizados; dirección exacta solo para la persona realizadora y teléfonos solo con consentimiento mutuo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCoordination"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código coordination_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: El identificador no existe; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: Conflicto; la changa no esta asignada (código changa_not_assigned).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/coordination/phone-consent:
+    put:
+      operationId: setChangaPhoneConsent
+      summary: Acepta, rechaza o revoca el consentimiento telefónico propio
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhoneConsentRequest"
+      responses:
+        "200":
+          description: Preferencia guardada; los teléfonos se muestran solo con consentimiento mutuo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaCoordination"
+        "400":
+          $ref: "#/components/responses/ValidationProblem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código coordination_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: El identificador no existe; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: Conflicto; la changa no esta asignada (código changa_not_assigned).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/cancellation-requests:
+    post:
+      operationId: proposeChangaCancellation
+      summary: Propone cancelar una changa asignada por acuerdo mutuo
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Solicitud pendiente; la asignación continúa activa.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationRequest"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no participa de la asignación; código cancellation_request_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La changa no está asignada o ya existe una solicitud pendiente; código cancellation_request_conflict.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/cancellation-requests/{requestId}:
+    post:
+      operationId: respondChangaCancellation
+      summary: Acepta o rechaza una propuesta de cancelación
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancellationResponseRequest"
+      responses:
+        "200":
+          description: Respuesta registrada; aceptar cancela y libera la asignación atómicamente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationRequest"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La cuenta no es la otra parte; código cancellation_request_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La solicitud o changa ya cambió; código cancellation_request_conflict.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/coordinations:
+    get:
+      operationId: listCoordinations
+      summary: Lista las coordinaciones de las changas asignadas a la cuenta
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Lista privada de asignaciones de la persona autenticada; la dirección exacta siempre es null y se consulta en la coordinación individual.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChangaCoordination"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/changas/{id}/take:
+    post:
+      operationId: takeChanga
+      summary: Toma una changa disponible por orden de llegada
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: La changa quedó asignada a la persona autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangaTakeResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: La changa no puede tomarse; el código identifica la regla, incluido `changa_already_assigned`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/changas/{id}/cancel:
+    post:
+      operationId: cancelChanga
+      summary: Cancela una publicación propia disponible que aún no tiene asignación
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: La publicación se conserva con estado cancelled y deja de estar disponible.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Changa"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          description: La persona autenticada no es autora; código changa_cancel_forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: No existe la publicación; código changa_not_found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: La changa ya tiene asignación (changa_already_assigned) o no está disponible (changa_not_available).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 components:
   securitySchemes:
     cookieAuth:
@@ -108,6 +819,325 @@ components:
       in: cookie
       name: ChangaQuest.Auth
   schemas:
+    CreateChangaRequest:
+      type: object
+      required: [description, categoryId, reward, zone, exactAddress, materialsNeeded]
+      properties:
+        categoryId:
+          type: string
+          description: Identificador estable de una categoría aprobada del catálogo.
+          enum: [limpieza-domestica, cocina-preparacion-basica, compras-mandados, jardineria-basica, organizacion-hogar, cuidado-mascotas]
+        description:
+          type: string
+          minLength: 10
+          maxLength: 1000
+          description: Las longitudes se miden después de quitar espacios al inicio y al final.
+        reward:
+          type: integer
+          minimum: 1
+          maximum: 10000000
+          description: Recompensa entera en pesos argentinos (ARS).
+        zone:
+          type: string
+          minLength: 3
+          maxLength: 80
+          description: Barrio o zona aproximada; es pública. Longitud medida sin espacios al inicio y al final.
+        exactAddress:
+          type: string
+          minLength: 5
+          maxLength: 200
+          writeOnly: true
+          description: Dirección privada; nunca se devuelve en este contrato. Longitud medida sin espacios al inicio y al final.
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Coordenada ficticia opcional de demo para búsquedas por cercanía.
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Coordenada ficticia opcional de demo para búsquedas por cercanía.
+        materialsNeeded:
+          type: boolean
+          description: Respuesta explícita sobre si hacen falta herramientas o materiales.
+        materialsProvider:
+          type: string
+          enum: [requester, worker]
+          description: Obligatorio si materialsNeeded es true; se omite si es false.
+      oneOf:
+        - required: [materialsNeeded]
+          properties:
+            materialsNeeded:
+              type: boolean
+              enum: [false]
+          not:
+            required: [materialsProvider]
+        - required: [materialsNeeded, materialsProvider]
+          properties:
+            materialsNeeded:
+              type: boolean
+              enum: [true]
+            materialsProvider:
+              type: string
+              enum: [requester, worker]
+    Changa:
+      type: object
+      required: [id, description, categoryId, reward, zone, materialsNeeded, materialsProvider, status, reviewReason, assignmentMode, isSample, createdAt, distanceKm]
+      properties:
+        id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        categoryId:
+          type: string
+          enum: [limpieza-domestica, cocina-preparacion-basica, compras-mandados, jardineria-basica, organizacion-hogar, cuidado-mascotas]
+        reward:
+          type: integer
+          description: Recompensa publicada en ARS; no representa un pago procesado.
+        zone:
+          type: string
+        materialsNeeded:
+          type: boolean
+        materialsProvider:
+          type: string
+          nullable: true
+          enum: [requester, worker, null]
+        status:
+          type: string
+          enum: [available, assigned, cancelled, pending_review, rejected, pending_response, confirmed, completion_review, completed]
+        reviewReason:
+          type: string
+          nullable: true
+          description: Motivo conservado cuando una revisión rechaza la publicación.
+        assignmentMode:
+          type: string
+          enum: [first_come]
+        isSample:
+          type: boolean
+          description: Indica datos ficticios de muestra; el cliente debe rotularlos como Ejemplo ficticio.
+        createdAt:
+          type: string
+          format: date-time
+        distanceKm:
+          type: number
+          format: double
+          minimum: 0
+          description: Distancia aproximada en línea recta desde la ubicación de búsqueda.
+    CancellationRequest:
+      type: object
+      required: [id, changaId, status, requestedByRole, createdAt, code]
+      properties:
+        id:
+          type: string
+          format: uuid
+        changaId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, accepted, rejected]
+        requestedByRole:
+          type: string
+          enum: [requester, worker]
+        createdAt:
+          type: string
+          format: date-time
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+        code:
+          type: string
+          enum: [cancellation_request_created, cancellation_request_updated]
+    CancellationResponseRequest:
+      type: object
+      required: [accept]
+      properties:
+        accept:
+          type: boolean
+
+    ChangaCompletion:
+      type: object
+      required: [changaId, description, role, status, markedDoneAt, responseDeadline, reviewCause]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        role:
+          type: string
+          enum: [requester, worker]
+        status:
+          type: string
+          enum: [assigned, pending_response, confirmed, completion_review]
+        markedDoneAt:
+          type: string
+          format: date-time
+          nullable: true
+        responseDeadline:
+          type: string
+          format: date-time
+          nullable: true
+        reviewCause:
+          type: string
+          nullable: true
+          enum: [rejected, expired, null]
+    ChangaPaymentDeclaration:
+      type: object
+      required: [changaId, requesterPaid, workerReceived, closed]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        requesterPaid:
+          type: boolean
+          description: La persona solicitante declaró individualmente que pagó.
+        workerReceived:
+          type: boolean
+          description: La persona realizadora declaró individualmente que recibió.
+        closed:
+          type: boolean
+          description: Ambas declaraciones fueron registradas; no implica verificación del pago.
+    ChangaRatingEligibility:
+      type: object
+      required: [changaId, canRate, hasRated]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        canRate:
+          type: boolean
+          description: True solo tras el cierre normal y antes de que esta parte envíe su nota.
+        hasRated:
+          type: boolean
+    SubmitChangaRatingRequest:
+      type: object
+      required: [score]
+      additionalProperties: false
+      properties:
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+    ChangaRatingReceipt:
+      type: object
+      required: [changaId, score]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+    RatingProfile:
+      type: object
+      required: [averageRating, ratingCount]
+      properties:
+        averageRating:
+          type: number
+          format: double
+          minimum: 1
+          maximum: 5
+          nullable: true
+          description: Null cuando todavía no hay calificaciones recibidas.
+        ratingCount:
+          type: integer
+          minimum: 0
+    ChangaCategory:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Identificador estable de la categoría.
+        name:
+          type: string
+    PhoneConsentRequest:
+      type: object
+      required: [sharePhone]
+      properties:
+        sharePhone:
+          type: boolean
+          description: Decisión explícita de la parte autenticada.
+        phone:
+          type: string
+          maxLength: 32
+          description: Teléfono ficticio obligatorio y validado solo si sharePhone es true; se descarta al rechazar.
+      description: Al aceptar, phone debe contener entre 8 y 15 dígitos y solo dígitos, +, espacios, guiones o paréntesis.
+      oneOf:
+        - required: [sharePhone, phone]
+          properties:
+            sharePhone:
+              type: boolean
+              enum: [true]
+        - required: [sharePhone]
+          properties:
+            sharePhone:
+              type: boolean
+              enum: [false]
+          not:
+            required: [phone]
+    ChangaCoordination:
+      type: object
+      required: [changaId, description, role, otherPartyId, yourConsent, otherPartyConsent, hasMutualConsent, otherPhone, exactAddress, cancellationRequest]
+      properties:
+        changaId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        role:
+          type: string
+          enum: [requester, worker]
+        otherPartyId:
+          type: string
+          nullable: true
+          description: Identificador opaco de la otra parte, visible solo en la coordinación privada.
+        yourConsent:
+          type: string
+          enum: [pending, accepted, declined]
+        otherPartyConsent:
+          type: string
+          enum: [accepted, not_shared]
+          description: No distingue entre rechazo y falta de respuesta.
+        hasMutualConsent:
+          type: boolean
+        otherPhone:
+          type: string
+          nullable: true
+          description: Teléfono ficticio de la otra parte, solamente con consentimiento mutuo.
+        exactAddress:
+          type: string
+          nullable: true
+          description: Dirección exacta ficticia, solo para la persona realizadora asignada.
+        cancellationRequest:
+          allOf:
+            - $ref: "#/components/schemas/CancellationRequest"
+          nullable: true
+    ChangaTakeResponse:
+      type: object
+      required: [changa, assignment]
+      properties:
+        changa:
+          $ref: "#/components/schemas/Changa"
+        assignment:
+          $ref: "#/components/schemas/ChangaAssignment"
+    ChangaAssignment:
+      type: object
+      required: [id, assignedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        assignedAt:
+          type: string
+          format: date-time
     AccountRegistrationAccepted:
       type: object
       required: [message]
@@ -130,10 +1160,10 @@ components:
         password:
           type: string
           minLength: 12
-          description: Sin requisitos de composición.
+          description: Sin requisitos de composiciÃ³n.
         declaredAdult:
           type: boolean
-          description: Declaración afirmativa de tener 18 años o más; no se almacena fecha ni documento.
+          description: DeclaraciÃ³n afirmativa de tener 18 aÃ±os o mÃ¡s; no se almacena fecha ni documento.
     SignInRequest:
       type: object
       required: [email, password]
@@ -176,7 +1206,7 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
     ValidationProblem:
-      description: Error de validación conforme a Problem Details.
+      description: Error de validaciÃ³n conforme a Problem Details.
       content:
         application/problem+json:
           schema:
