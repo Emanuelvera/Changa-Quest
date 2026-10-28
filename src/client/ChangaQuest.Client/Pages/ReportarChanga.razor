@@ -1,0 +1,236 @@
+@page "/tareas/{Id:guid}/reporte"
+@inject HttpClient Http
+
+<PageTitle>Reportar changa · Changa Quest</PageTitle>
+
+<main class="page">
+    <header class="brand">
+        <p class="eyebrow">REVISIÓN PRIVADA</p>
+        <h1>Enviar reporte</h1>
+        <p class="intro">El motivo y la evidencia solo quedan disponibles para revisión autorizada. No se publican en el tablón ni en perfiles.</p>
+    </header>
+
+    @if (Submitted)
+    {
+        <section class="account-card" aria-labelledby="report-confirmation-heading">
+            <h2 id="report-confirmation-heading">Reporte recibido</h2>
+            <p class="success-message" role="status">El reporte quedó enviado para revisión privada.</p>
+            <a class="button-link" href="@($"/tareas/{Id}")">Volver a la changa</a>
+        </section>
+    }
+    else
+    {
+        <section class="account-card" aria-labelledby="report-form-heading">
+            <h2 id="report-form-heading">Contanos qué pasó</h2>
+            <p class="form-intro">El reporte se asocia a esta changa. La evidencia es opcional; por ahora podés incluir texto o un enlace, no archivos.</p>
+            <EditForm EditContext="FormContext" OnValidSubmit="SubmitAsync" OnInvalidSubmit="HandleInvalidSubmitAsync">
+                <DataAnnotationsValidator />
+                <div class="field">
+                    <label for="report-reason">Motivo del reporte</label>
+                    <textarea id="report-reason" @bind="Form.Reason" maxlength="500"
+                              aria-describedby="@ErrorDescription("reason")"
+                              aria-invalid="@(IsInvalid("reason") ? "true" : "false")"></textarea>
+                    <p id="report-reason-hint" class="hint">Obligatorio; hasta 500 caracteres.</p>
+                    <ValidationMessage id="report-reason-validation" For="@(() => Form.Reason)" />
+                    @FieldError("reason")
+                </div>
+                <div class="field">
+                    <label for="report-evidence">Evidencia opcional</label>
+                    <textarea id="report-evidence" @bind="Form.Evidence" maxlength="1000"
+                              aria-describedby="@ErrorDescription("evidence")"
+                              aria-invalid="@(IsInvalid("evidence") ? "true" : "false")"></textarea>
+                    <p id="report-evidence-hint" class="hint">Podés agregar una descripción o un enlace, hasta 1000 caracteres. No incluyas datos personales innecesarios.</p>
+                    <ValidationMessage id="report-evidence-validation" For="@(() => Form.Evidence)" />
+                    @FieldError("evidence")
+                </div>
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <p class="field-error" role="alert">@Error</p>
+                }
+                <div class="form-actions">
+                    <button class="button" type="submit" disabled="@Saving">
+                        @(Saving ? "Enviando…" : "Enviar reporte")
+                    </button>
+                    <a class="button-link secondary-link" href="@($"/tareas/{Id}")">Cancelar</a>
+                </div>
+            </EditForm>
+        </section>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private readonly ReportForm Form = new();
+    private readonly EditContext FormContext;
+    private readonly Dictionary<string, string> ServerErrors = new(StringComparer.OrdinalIgnoreCase);
+    private bool Saving;
+    private bool Submitted;
+    private string? Error;
+
+    public ReportarChanga()
+    {
+        FormContext = new EditContext(Form);
+    }
+
+    private Task HandleInvalidSubmitAsync(EditContext _)
+    {
+        ServerErrors.Clear();
+        Error = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (Saving || Submitted)
+        {
+            return;
+        }
+
+        Saving = true;
+        Error = null;
+        ServerErrors.Clear();
+
+        try
+        {
+            var request = new ReportRequest(
+                Id,
+                Form.Reason.Trim(),
+                string.IsNullOrWhiteSpace(Form.Evidence) ? null : Form.Evidence.Trim());
+            using var response = await Http.PostAsJsonAsync("/api/v1/reports", request);
+            if (response.StatusCode != System.Net.HttpStatusCode.Created)
+            {
+                Error = await ReadErrorAsync(response);
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<ReportSubmitted>();
+            if (result is null || result.Id == Guid.Empty || result.Status != "pending")
+            {
+                Error = "No se pudo confirmar el envío del reporte. Revisá el estado antes de volver a intentarlo.";
+                return;
+            }
+
+            Submitted = true;
+        }
+        catch (HttpRequestException)
+        {
+            Error = "No se pudo conectar con el servidor. No confirmamos el envío; podés intentarlo de nuevo.";
+        }
+        catch (OperationCanceledException)
+        {
+            Error = "La solicitud tardó demasiado. No confirmamos el envío; podés intentarlo de nuevo.";
+        }
+        catch (JsonException)
+        {
+            Error = "No se pudo leer la respuesta. No confirmamos el envío; podés volver a cargar el estado.";
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private async Task<string> ReadErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (body.RootElement.TryGetProperty("errors", out var errors) &&
+                errors.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var error in errors.EnumerateObject())
+                {
+                    if (error.Value.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var item in error.Value.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.String &&
+                            !string.IsNullOrWhiteSpace(item.GetString()))
+                        {
+                            ServerErrors[error.Name] = item.GetString()!;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (body.RootElement.TryGetProperty("detail", out var detail) &&
+                !string.IsNullOrWhiteSpace(detail.GetString()))
+            {
+                return detail.GetString()!;
+            }
+        }
+        catch (JsonException)
+        {
+            return "No se pudo enviar el reporte. Revisá los datos e intentá de nuevo.";
+        }
+
+        return response.StatusCode switch
+        {
+            System.Net.HttpStatusCode.Unauthorized => "Iniciá sesión para enviar un reporte.",
+            System.Net.HttpStatusCode.Forbidden => "Tu cuenta no está habilitada para enviar reportes.",
+            System.Net.HttpStatusCode.NotFound => "La changa indicada ya no existe.",
+            _ => "No se pudo enviar el reporte. Revisá los datos e intentá de nuevo."
+        };
+    }
+
+    private bool HasError(string field) => ServerErrors.ContainsKey(field);
+
+    private bool IsInvalid(string field)
+    {
+        if (HasError(field))
+        {
+            return true;
+        }
+
+        var propertyName = field == "reason" ? nameof(ReportForm.Reason) : nameof(ReportForm.Evidence);
+        return FormContext.GetValidationMessages(new FieldIdentifier(Form, propertyName)).Any();
+    }
+
+    private string ErrorDescription(string field)
+    {
+        var descriptions = new List<string> { $"report-{field}-hint", $"report-{field}-validation" };
+        if (HasError(field))
+        {
+            descriptions.Add($"report-{field}-error");
+        }
+
+        return string.Join(' ', descriptions);
+    }
+
+    private RenderFragment FieldError(string field) => builder =>
+    {
+        if (ServerErrors.TryGetValue(field, out var message))
+        {
+            builder.OpenElement(0, "p");
+            builder.AddAttribute(1, "id", $"report-{field}-error");
+            builder.AddAttribute(2, "class", "field-error");
+            builder.AddAttribute(3, "role", "alert");
+            builder.AddContent(4, message);
+            builder.CloseElement();
+        }
+    };
+
+    private sealed class ReportForm
+    {
+        [Required(ErrorMessage = "Indicá el motivo del reporte.")]
+        [StringLength(500, ErrorMessage = "El motivo no puede superar los 500 caracteres.")]
+        public string Reason { get; set; } = string.Empty;
+
+        [StringLength(1000, ErrorMessage = "La evidencia no puede superar los 1000 caracteres.")]
+        public string? Evidence { get; set; }
+    }
+
+    private sealed record ReportRequest(
+        Guid ChangaId,
+        string Reason,
+        [property: System.Text.Json.Serialization.JsonIgnore(
+            Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        string? Evidence);
+
+    private sealed record ReportSubmitted(Guid Id, string Status, DateTimeOffset CreatedAt);
+}

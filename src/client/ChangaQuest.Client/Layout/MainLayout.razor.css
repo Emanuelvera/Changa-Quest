@@ -1,23 +1,212 @@
 ﻿.site-header {
-    width: min(100% - 2rem, 58rem);
-    margin: 0 auto;
-    padding-top: 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: clamp(1rem, 3vw, 2.25rem);
+    width: 100%;
+    min-height: 5.25rem;
+    padding: .8rem clamp(1rem, 5vw, 4.75rem);
+    border-bottom: 1px solid #334956;
+    background: #0d1a24ed;
+    backdrop-filter: blur(1rem);
 }
 
 .site-brand {
-    color: #20372c;
-    font-size: 1.15rem;
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    color: #eaf0f5;
+    font-size: 1rem;
     font-weight: 800;
+    line-height: 1.15;
     text-decoration: none;
+    white-space: nowrap;
+}
+
+.site-brand strong {
+    color: #f4c27d;
+}
+
+.site-brand small {
+    display: block;
+    margin-top: .3rem;
+    color: #a7b4c1;
+    font-size: .68rem;
+    font-weight: 400;
+}
+
+.brand-mark {
+    display: grid;
+    width: 2.4rem;
+    height: 2.4rem;
+    place-items: center;
+    border: 1px solid #b98a4e;
+    border-radius: 50%;
+    color: #f4c27d;
+    font-size: 1.6rem;
+}
+
+.primary-nav {
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+    margin: 0 auto;
+}
+
+.primary-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    min-height: 2.75rem;
+    padding: .6rem .8rem;
+    border: 1px solid transparent;
+    border-radius: .6rem;
+    color: #c1cbd4;
+    font-size: .85rem;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.primary-nav a:hover,
+.primary-nav a.active {
+    border-color: #344957;
+    background: #ffffff12;
+    color: #fff;
 }
 
 .primary-nav a.active {
-    border-color: #285d3f;
-    background: #edf3ec;
+    box-shadow: inset 0 -2px #e6a653;
 }
 
-@media (max-width: 40rem) {
+.primary-nav a span {
+    color: #f4c27d;
+    font-size: 1.1rem;
+}
+
+.demo-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .45rem .7rem;
+    border: 1px solid #344957;
+    border-radius: 999px;
+    color: #bac7d1;
+    font-size: .7rem;
+    white-space: nowrap;
+}
+
+.demo-pill > span {
+    width: .4rem;
+    height: .4rem;
+    border-radius: 50%;
+    background: #93c6a2;
+}
+
+.page-wrap {
+    flex: 1;
+}
+
+.skip-link {
+    position: fixed;
+    z-index: 100;
+    top: .75rem;
+    left: .75rem;
+    transform: translateY(-160%);
+    padding: .75rem 1rem;
+    border-radius: .5rem;
+    background: #f4c27d;
+    color: #111a20;
+    font-weight: 800;
+}
+
+.skip-link:focus {
+    transform: translateY(0);
+}
+
+.site-footer {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.5rem clamp(1rem, 5vw, 4.75rem);
+    border-top: 1px solid #293b48;
+    color: #738596;
+    font-size: .75rem;
+}
+
+.site-footer span:first-child {
+    color: #c8d1d9;
+    font-weight: 800;
+}
+
+.site-footer a {
+    margin-left: auto;
+    color: #f4c27d;
+    text-decoration: none;
+}
+
+.mobile-nav {
+    display: none;
+}
+
+@media (max-width: 48rem) {
     .site-header {
-        padding-top: .75rem;
+        min-height: 4.5rem;
+        padding: .65rem 1rem;
+    }
+
+    .primary-nav,
+    .demo-pill {
+        display: none;
+    }
+
+    .site-brand {
+        margin: 0 auto;
+    }
+
+    .mobile-nav {
+        position: fixed;
+        z-index: 20;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: .2rem;
+        padding: .45rem .35rem max(.45rem, env(safe-area-inset-bottom));
+        border-top: 1px solid #344957;
+        background: #0d1a24f5;
+        backdrop-filter: blur(1rem);
+    }
+
+    .mobile-nav a {
+        display: flex;
+        min-width: 0;
+        min-height: 2.9rem;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: .12rem;
+        border-radius: .45rem;
+        color: #c1cbd4;
+        font-size: .68rem;
+        text-decoration: none;
+    }
+
+    .mobile-nav a span {
+        color: #f4c27d;
+        font-size: 1.1rem;
+        line-height: 1;
+    }
+
+    .mobile-nav a.active {
+        background: #ffffff12;
+        color: #fff;
+    }
+
+    .site-footer {
+        flex-wrap: wrap;
+        padding-bottom: 6rem;
     }
 }

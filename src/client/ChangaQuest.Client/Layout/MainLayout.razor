@@ -1,14 +1,30 @@
 ﻿@inherits LayoutComponentBase
 
 <div class="app-shell">
+    <a class="skip-link" href="#main-content">Saltar al contenido</a>
     <header class="site-header">
-        <a class="site-brand" href="/" aria-label="Changa Quest, inicio">Changa Quest</a>
+        <a class="site-brand" href="/" aria-label="Changa Quest, inicio">
+            <span class="brand-mark" aria-hidden="true">✳</span>
+            <span>Changa <strong>Quest</strong><small>Changas del barrio, cerca tuyo</small></span>
+        </a>
         <nav class="primary-nav" aria-label="Navegación principal">
-            <NavLink href="/tareas" Match="NavLinkMatch.All">Ver tareas</NavLink>
-            <NavLink href="/publicar" Match="NavLinkMatch.All">Publicar changa</NavLink>
-            <NavLink href="/coordinaciones" Match="NavLinkMatch.All">Mis changas</NavLink>
-            <NavLink href="/perfil" Match="NavLinkMatch.All">Perfil</NavLink>
+            <NavLink href="/tareas" Match="NavLinkMatch.All"><span aria-hidden="true">⌕</span>Ver tareas</NavLink>
+            <NavLink href="/publicar"><span aria-hidden="true">＋</span>Publicar changa</NavLink>
+            <NavLink href="/coordinaciones"><span aria-hidden="true">▤</span>Mis changas</NavLink>
+            <NavLink href="/perfil"><span aria-hidden="true">♙</span>Perfil</NavLink>
         </nav>
+        <span class="demo-pill"><span aria-hidden="true"></span>Demo académica</span>
     </header>
-    @Body
+    <div id="main-content" class="page-wrap" tabindex="-1">@Body</div>
+    <footer class="site-footer">
+        <span>✳ Changa Quest</span>
+        <span>Una demo académica con datos ficticios.</span>
+        <a href="/tareas">Explorar changas <span aria-hidden="true">↗</span></a>
+    </footer>
+    <nav class="mobile-nav" aria-label="Navegación móvil">
+        <NavLink href="/tareas" Match="NavLinkMatch.All"><span aria-hidden="true">⌕</span>Ver tareas</NavLink>
+        <NavLink href="/publicar"><span aria-hidden="true">＋</span>Publicar</NavLink>
+        <NavLink href="/coordinaciones"><span aria-hidden="true">▤</span>Mis changas</NavLink>
+        <NavLink href="/perfil"><span aria-hidden="true">♙</span>Perfil</NavLink>
+    </nav>
 </div>

@@ -3,11 +3,19 @@
 
 <PageTitle>Changa Quest · Cuenta</PageTitle>
 
-<main class="page">
-    <header class="brand">
-        <p class="eyebrow">CHANGA QUEST · DEMO LOCAL</p>
-        <h1>Un espacio para organizar changas del barrio</h1>
+<main class="page auth-layout">
+    <header class="brand auth-story">
+        <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>CHANGA QUEST · DEMO LOCAL</p>
+        <h1>Un espacio para organizar <em>changas del barrio</em></h1>
         <p class="intro">Creá una cuenta para publicar o realizar changas. Esta demostración usa datos ficticios y no habilita trabajos ni pagos reales.</p>
+        <div class="story-points">
+            <div><span aria-hidden="true">01</span><p><b>Información clara</b><small>Revisá zona, recompensa y materiales antes de tomar una changa.</small></p></div>
+            <div><span aria-hidden="true">02</span><p><b>Privacidad en cada paso</b><small>La dirección exacta no aparece en el tablón público.</small></p></div>
+            <div><span aria-hidden="true">03</span><p><b>Estados del servidor</b><small>Las acciones se confirman con la sesión y la API reales.</small></p></div>
+        </div>
+        <div class="mountain-art" aria-hidden="true">
+            <span>✳</span><i class="mountain m1"></i><i class="mountain m2"></i><i class="mountain m3"></i>
+        </div>
     </header>
 
     @if (Loading)
@@ -16,7 +24,7 @@
     }
     else if (!string.IsNullOrWhiteSpace(SignedInEmail))
     {
-        <section class="account-card" aria-labelledby="welcome-heading">
+        <section class="account-card auth-panel" aria-labelledby="welcome-heading">
             <p class="eyebrow">CUENTA VERIFICADA</p>
             <h2 id="welcome-heading">Hola, @SignedInEmail</h2>
             <p>Tu cuenta puede actuar como solicitante o realizadora.</p>
@@ -30,7 +38,7 @@
     }
     else
     {
-        <section class="account-card" aria-labelledby="account-heading">
+        <section class="account-card auth-panel" aria-labelledby="account-heading">
             <div class="tabs" role="group" aria-label="Acceso a la cuenta">
                 <button class="@TabClass(showRegistration: false)" type="button" @onclick="() => ShowRegistration = false">Iniciar sesión</button>
                 <button class="@TabClass(showRegistration: true)" type="button" @onclick="() => ShowRegistration = true">Crear cuenta</button>
@@ -110,7 +118,7 @@
             }
         </section>
     }
-    <footer>
+    <footer class="auth-footnote">
         <p>Demo académica local · No envía correos externos ni habilita trabajos reales.</p>
     </footer>
 </main>

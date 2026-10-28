@@ -23,6 +23,8 @@ public sealed class ChangaPageTests : Bunit.TestContext
         Assert.Contains("Publicar changa", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("href=\"/perfil\"", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("Perfil", layout.Markup, StringComparison.Ordinal);
+        Assert.Contains("Saltar al contenido", layout.Markup, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Navegación móvil\"", layout.Markup, StringComparison.Ordinal);
         Assert.Contains("Contenido de prueba", layout.Markup, StringComparison.Ordinal);
     }
 
@@ -259,6 +261,7 @@ public sealed class ChangaPageTests : Bunit.TestContext
         {
             Assert.Contains("Tomar esta changa", app.Markup);
             Assert.Contains("confirmación es una acción separada", app.Markup);
+            Assert.Contains($"/tareas/{id}/reporte", app.Markup);
         });
         app.Find("button").Click();
         app.WaitForAssertion(() =>
