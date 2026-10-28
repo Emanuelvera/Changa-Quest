@@ -68,11 +68,16 @@ context:
 - Se conservó el cliente WASM y su `HttpClient` de mismo origen; las acciones de las pantallas continúan usando los endpoints existentes.
 - Se adoptó la identidad visual oscura azul/dorada del especialista para el shell y los componentes existentes, manteniendo navegación móvil, foco visible y estados de carga/error.
 - Se agregó el envío privado de reportes asociado a una changa, con motivo obligatorio, evidencia textual/enlace opcional y sin mostrar datos del reporte a otras personas.
+- Se separaron visualmente los estados informativos de las confirmaciones de éxito para evitar mostrar estados pendientes como exitosos.
 - La referencia `spec-redisenio-visual-frontend.md` indicada en `context:` no existe en el worktree actual; no se modificó ningún archivo del proyecto externo.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+| Verdict | Route | Evidence |
+|---|---|---|
+| medium | patch | `.status` estaba agrupado con `.success-message` y teñía de verde mensajes de carga, espera y revisión. Se separó el estilo neutral y se añadió una prueba de contrato CSS que falló antes del cambio y pasó después. |
 
 ## Verification
 
@@ -80,4 +85,4 @@ context:
 - `dotnet build` -- esperado: compilación correcta de la solución.
 - `dotnet test --test-modules "tests\**\bin\Debug\net10.0\*Tests.dll"` -- esperado: todas las pruebas existentes y nuevas pasan.
 
-**Resultado:** `dotnet build` terminó correctamente y la suite Microsoft.Testing.Platform informó 216 pruebas correctas, 0 errores y 0 omitidas. Las pruebas nuevas de reporte se ejecutaron primero en rojo y luego en verde.
+**Resultado:** `dotnet build` terminó correctamente y la suite Microsoft.Testing.Platform informó 217 pruebas correctas, 0 errores y 0 omitidas. Las pruebas nuevas de reporte se ejecutaron primero en rojo y luego en verde. La prueba de contrato visual del estado también se ejecutó en rojo antes del ajuste y en verde después.

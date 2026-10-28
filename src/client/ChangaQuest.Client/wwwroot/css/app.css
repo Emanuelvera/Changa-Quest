@@ -142,8 +142,7 @@ footer {
     font-weight: 600;
 }
 
-.success-message,
-.status {
+.success-message {
     padding: .75rem 1rem;
     border-left: 4px solid #3e704e;
     background: #edf3ec;
@@ -684,14 +683,23 @@ footer {
     border-color: #e08d83;
 }
 
-.success-message,
-.status {
+.success-message {
     padding: .8rem .9rem;
     border: 1px solid #426d59;
     border-left: 4px solid #93c6a2;
     border-radius: .55rem;
     background: #1d382f;
     color: #d1f0dc;
+    line-height: 1.5;
+}
+
+.status {
+    padding: .8rem .9rem;
+    border: 1px solid #3a6074;
+    border-left: 4px solid #5a91a8;
+    border-radius: .55rem;
+    background: #1a3040;
+    color: #d4eaf4;
     line-height: 1.5;
 }
 
